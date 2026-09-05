@@ -1,0 +1,88 @@
+[project]
+name = "mint-computer-mcp"
+version = "0.1.0"
+description = "Computer-use MCP server for Linux Mint X11 desktops"
+readme = "README.md"
+authors = [
+    { name = "listlessbird", email = "124798751+listlessbird@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2,<3",
+]
+
+[project.scripts]
+mint-computer-mcp = "mint_computer_mcp.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.10",
+    "hypothesis>=6.165.10",
+    "prek>=0.5.0",
+    "pytest>=9",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.5",
+    "syrupy>=6.0.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["agent-docs"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "CPY001", # No per-file copyright boilerplate.
+    "D213", # Use first-line docstring summaries.
+    "COM812", "D203", "D206", "D300", "E111", "E114", "E117", "E501",
+    "ISC002", "Q000", "Q001", "Q002", "Q003", "Q004", "W191",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["D", "INP001", "PLR2004", "S101"]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = false
+ignore-fully-untyped = false
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.basedpyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+typeCheckingMode = "all"
+failOnWarnings = true
+reportAny = "error"
+reportExplicitAny = "error"
+reportIgnoreCommentWithoutRule = "error"
+reportMissingTypeStubs = "error"
+reportUnreachable = "error"
+stubPath = "typings"
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+strict = true
+addopts = ["-ra", "--showlocals"]
+filterwarnings = ["error"]
+markers = [
+    "integration: tests requiring a real X11 desktop",
+    "slow: deliberately slow tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["mint_computer_mcp"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

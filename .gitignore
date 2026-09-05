@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.ruff_cache/
+
+# Local reference corpus and test artifacts
+/agent-docs/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.hypothesis/

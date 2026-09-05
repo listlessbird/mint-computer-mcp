@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+reference_root="$project_root/agent-docs"
+
+declare -A urls=(
+    [mcp-python-sdk]=https://github.com/modelcontextprotocol/python-sdk.git
+    [mcp-spec]=https://github.com/modelcontextprotocol/modelcontextprotocol.git
+    [python-xlib]=https://github.com/python-xlib/python-xlib.git
+    [python-mss]=https://github.com/BoboTiG/python-mss.git
+    [pydantic]=https://github.com/pydantic/pydantic.git
+    [at-spi2-core]=https://gitlab.gnome.org/GNOME/at-spi2-core.git
+    [muffin]=https://github.com/linuxmint/muffin.git
+)
+
+if (( $# == 0 )); then
+    echo "Usage: scripts/sync-agent-docs NAME [NAME ...]"
+    echo "References: mcp-python-sdk mcp-spec python-xlib python-mss pydantic at-spi2-core muffin"
+    exit 0
+fi
+
+# Validate every requested name before modifying any checkout.
+for name in "$@"; do
+    if [[ ! -v "urls[$name]" ]]; then
+        echo "Unknown reference: $name" >&2
+        exit 1
+    fi
+done
+
+mkdir -p "$reference_root"
+for name in "$@"; do
+    destination="$reference_root/$name"
+    if [[ -d "$destination/.git" ]]; then
+        git -C "$destination" pull --ff-only
+    else
+        git clone --depth=1 --filter=blob:none "${urls[$name]}" "$destination"
+    fi
+done
+
+# Record exact revisions so agents can identify the source they consulted.
+{
+    echo '# Local references'
+    echo
+    echo 'Selected upstream checkouts. Re-running the sync command updates them.'
+    echo
+    for name in mcp-python-sdk mcp-spec python-xlib python-mss pydantic at-spi2-core muffin; do
+        if [[ -d "$reference_root/$name/.git" ]]; then
+            revision="$(git -C "$reference_root/$name" rev-parse HEAD)"
+            printf -- '- `%s/` — %s at `%s`\n' "$name" "${urls[$name]}" "$revision"
+        fi
+    done
+} > "$reference_root/README.md"
