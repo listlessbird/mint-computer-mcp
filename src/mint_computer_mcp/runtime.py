@@ -17,7 +17,7 @@ from mint_computer_mcp.domain.observation import (
     OutputInfo,
     Snapshot,
 )
-from mint_computer_mcp.image import DEFAULT_JPEG_QUALITY, encode_jpeg
+from mint_computer_mcp.image import DEFAULT_JPEG_QUALITY, JpegEncoder
 
 _DEFAULT_SNAPSHOT_LIMIT = 64
 
@@ -60,7 +60,7 @@ class DesktopRuntime[SnapshotStateT]:
 
         self._backend = backend
         self._snapshot_limit = snapshot_limit
-        self._jpeg_quality = jpeg_quality
+        self._encoder = JpegEncoder(quality=jpeg_quality)
         self._snapshots: OrderedDict[SnapshotId, _SnapshotEntry[SnapshotStateT]] = OrderedDict()
         self._closed = False
 
@@ -76,10 +76,7 @@ class DesktopRuntime[SnapshotStateT]:
         captured_at = monotonic()
         capture = self._backend.capture(target)
 
-        image = encode_jpeg(
-            capture.frame,
-            quality=self._jpeg_quality,
-        )
+        image = self._encoder.encode(capture.frame)
 
         snapshot = Snapshot(
             id=SnapshotId(f"snap_{secrets.token_urlsafe(18)}"),
@@ -134,7 +131,10 @@ class DesktopRuntime[SnapshotStateT]:
 
         self._closed = True
         self._snapshots.clear()
-        self._backend.close()
+        try:
+            self._encoder.close()
+        finally:
+            self._backend.close()
 
     def __enter__(self) -> Self:
         """Return this runtime for scoped ownership."""

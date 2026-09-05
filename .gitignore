@@ -17,3 +17,4 @@ wheels/
 htmlcov/
 .pytest_cache/
 .hypothesis/
+docs/

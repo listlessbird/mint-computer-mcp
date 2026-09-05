@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from mint_computer_mcp.domain.observation import OutputInfo, OutputTarget
-from mint_computer_mcp.image import DEFAULT_JPEG_QUALITY, encode_jpeg
+from mint_computer_mcp.image import DEFAULT_JPEG_QUALITY, JpegEncoder
 from mint_computer_mcp.native.x11.backend import X11Backend
 from mint_computer_mcp.runtime import DesktopRuntime
 
@@ -117,7 +117,10 @@ def main() -> None:
     rss_start = _rss_bytes()
 
     backend = X11Backend.connect(display)
-    with DesktopRuntime(backend, jpeg_quality=quality) as runtime:
+    with (
+        DesktopRuntime(backend, jpeg_quality=quality) as runtime,
+        JpegEncoder(quality=quality) as encoder,
+    ):
         output = _primary_output(backend.outputs())
         target = OutputTarget(output=output.ref)
 
@@ -126,7 +129,7 @@ def main() -> None:
                 runtime.observe(target)
             else:
                 capture = backend.capture(target)
-                encode_jpeg(capture.frame, quality=quality)
+                encoder.encode(capture.frame)
                 del capture
 
         rss_after_warmup = _rss_bytes()
@@ -141,7 +144,7 @@ def main() -> None:
             else:
                 capture = backend.capture(target)
                 capture_end = time.perf_counter()
-                image = encode_jpeg(capture.frame, quality=quality)
+                image = encoder.encode(capture.frame)
                 encode_times.append((time.perf_counter() - capture_end) * 1000)
                 encoded_sizes.append(len(image.data))
                 del capture, image
