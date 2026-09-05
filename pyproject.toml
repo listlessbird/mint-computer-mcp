@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2,<3",
+    "xcffib>=1.12.0",
 ]
 
 [project.scripts]
@@ -44,6 +45,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# Local stubs must preserve xcffib's public names and keyword parameters.
+"typings/xcffib/*.pyi" = ["N801", "N802", "N818", "A002"]
 "tests/**/*.py" = ["D", "INP001", "PLR2004", "S101"]
 
 [tool.ruff.lint.flake8-annotations]

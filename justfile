@@ -105,3 +105,6 @@ agent-docs *names:
 clean:
     rm -rf .coverage htmlcov .pytest_cache .ruff_cache .mypy_cache .hypothesis .basedpyright
     find src tests -type d -name __pycache__ -prune -exec rm -rf {} +
+
+probe:
+    uv run python -m mint_computer_mcp.native.x11.probe

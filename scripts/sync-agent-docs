@@ -12,6 +12,8 @@ declare -A urls=(
     [pydantic]=https://github.com/pydantic/pydantic.git
     [at-spi2-core]=https://gitlab.gnome.org/GNOME/at-spi2-core.git
     [muffin]=https://github.com/linuxmint/muffin.git
+    [xcffib]=https://github.com/tych0/xcffib.git
+    [qtile]=https://github.com/qtile/qtile.git
 )
 
 if (( $# == 0 )); then
