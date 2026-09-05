@@ -1,5 +1,6 @@
 """Integer pixel geometry with half-open rectangle bounds."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 
@@ -97,4 +98,37 @@ def snapshot_to_root(
     return RootPoint(
         x=capture.x + point.x * capture.width // encoded_size.width,
         y=capture.y + point.y * capture.height // encoded_size.height,
+    )
+
+
+def intersect_root_rect(first: RootRect, second: RootRect) -> RootRect | None:
+    """Return intersection of two root space rectangles."""
+    left = max(first.x, second.x)
+    top = max(first.y, second.y)
+    right = min(first.x + first.width, second.x + second.width)
+    bottom = min(first.y + first.height, second.y + second.height)
+
+    if right <= left or bottom <= top:
+        return None
+
+    return RootRect(x=left, y=top, width=right - left, height=bottom - top)
+
+
+def bounding_root_rect(rects: Iterable[RootRect]) -> RootRect | None:
+    """Return smallest root space rectangle containing all inputs."""
+    items = tuple(rects)
+
+    if not items:
+        return None
+
+    left = min(rect.x for rect in items)
+    top = min(rect.y for rect in items)
+    right = max(rect.x + rect.width for rect in items)
+    bottom = max(rect.y + rect.height for rect in items)
+
+    return RootRect(
+        x=left,
+        y=top,
+        width=right - left,
+        height=bottom - top,
     )

@@ -11,7 +11,7 @@ import xcffib.xproto
 
 from mint_computer_mcp.domain.geometry import RootRect, Size
 from mint_computer_mcp.domain.identifiers import AtomId, RandrOutputId, WindowId
-from mint_computer_mcp.domain.x11 import ProtocolVersion, RandrOutput, X11Screen
+from mint_computer_mcp.domain.x11 import FrameExtents, ProtocolVersion, RandrOutput, X11Screen
 
 """
 X11        protocol / graphical system
@@ -30,6 +30,7 @@ EWMH       standard conventions allowing applications and WMs to communicate
 _PROPERTY_FORMAT_32 = 32
 _PROPERTY_FORMAT_8 = 8
 _WINDOW_VALUE = struct.Struct("=I")
+_FRAME_EXTENTS = struct.Struct("=IIII")
 
 
 class X11Error(RuntimeError):
@@ -78,6 +79,85 @@ class X11Client:
             msg = f"X11 request failed: {exc_value}"
             raise X11Error(msg) from exc_value
 
+    def root_rect(self) -> RootRect:
+        """Query current root dimensions, including framebuffer resizes since connection."""
+        geometry = self._connection.core.GetGeometry(int(self.root_window())).reply()
+        return RootRect(x=0, y=0, width=geometry.width, height=geometry.height)
+
+    def active_window(self, *, root: WindowId) -> WindowId | None:
+        """Return EWMH active client window."""
+        return self.window_property(window=root, name="_NET_ACTIVE_WINDOW")
+
+    def window_title(self, *, window: WindowId) -> str | None:
+        """Return a window's EWMH UTF-8 title."""
+        return self.utf8_property(window=window, name="_NET_WM_NAME")
+
+    def client_geometry(self, *, window: WindowId, root: WindowId) -> RootRect | None:
+        """Return an x11 client window's geometry in root coordinates."""
+        try:
+            geometry = self._connection.core.GetGeometry(int(window)).reply()
+            translated = self._connection.core.TranslateCoordinates(
+                int(window), int(root), 0, 0
+            ).reply()
+        except (xcffib.xproto.DrawableError, xcffib.xproto.WindowError):
+            return None
+
+        if not translated.same_screen:
+            return None
+
+        width = int(geometry.width)
+        height = int(geometry.height)
+
+        if width <= 0 or height <= 0:
+            return None
+
+        return RootRect(
+            x=int(translated.dst_x), y=int(translated.dst_y), width=width, height=height
+        )
+
+    def frame_extents(self, *, window: WindowId) -> FrameExtents | None:
+        """Return EWMH window manager decoration extents."""
+        result = self._property_bytes(
+            window=window,
+            property_atom=self.atom("_NET_FRAME_EXTENTS"),
+            type_atom=int(xcffib.xproto.Atom.CARDINAL),
+            long_length=4,
+        )
+
+        if result is None:
+            return None
+
+        format_bits, data = result
+
+        if format_bits != _PROPERTY_FORMAT_32 or len(data) != _FRAME_EXTENTS.size:
+            return None
+
+        left, right, top, bottom = (
+            int.from_bytes(data[offset : offset + 4], byteorder=sys.byteorder)
+            for offset in range(0, _FRAME_EXTENTS.size, 4)
+        )
+
+        return FrameExtents(left=left, right=right, top=top, bottom=bottom)
+
+    def window_frame_geometry(self, *, window: WindowId, root: WindowId) -> RootRect | None:
+        """Return a top level window rectangle including WM decorations when known."""
+        client = self.client_geometry(window=window, root=root)
+
+        if client is None:
+            return None
+
+        extents = self.frame_extents(window=window)
+
+        if extents is None:
+            return client
+
+        return RootRect(
+            x=client.x - extents.left,
+            y=client.y - extents.top,
+            width=client.width + extents.left + extents.right,
+            height=client.height + extents.top + extents.bottom,
+        )
+
     @property
     def preferred_screen(self) -> int:
         """Return preferred screen x11 index."""
@@ -120,13 +200,7 @@ class X11Client:
 
     def root_window(self) -> WindowId:
         """Return the root window of the preferred X11 screen."""
-        screens = self.screens()
-
-        index = self.preferred_screen
-        if not 0 <= index < len(screens):
-            msg = f"invalid preferred X11 screen: {index}"
-            raise X11ConnectionError(msg)
-        return screens[index].root
+        return self._preferred_screen_info().root
 
     def extensions(self) -> frozenset[str]:
         """Return advertised X11 extension names normalized to uppercase."""
@@ -232,7 +306,12 @@ class X11Client:
         """Return connected RandR outputs backed by active CRTCs."""
         randr = self._connection(xcffib.randr.key)
 
-        resources = randr.GetScreenResources(int(root)).reply()
+        # The current variant avoids a hardware poll on every observation.
+        resources = (
+            randr.GetScreenResourcesCurrent(int(root)).reply()
+            if (version.major, version.minor) >= (1, 3)
+            else randr.GetScreenResources(int(root)).reply()
+        )
 
         primary_output = 0
 
@@ -332,3 +411,14 @@ class X11Client:
             return None
 
         return int(reply.format), bytes(reply.value.buf())
+
+    def _preferred_screen_info(self) -> X11Screen:
+        """Return the preferred screen."""
+        screens = self.screens()
+        index = self.preferred_screen
+
+        if not 0 <= index < len(screens):
+            msg = f"invalid preferred X11 screen: {index}"
+            raise X11ConnectionError(msg)
+
+        return screens[index]

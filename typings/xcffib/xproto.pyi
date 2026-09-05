@@ -6,8 +6,10 @@ from . import Cookie, Error, List
 
 class Atom:
     WINDOW: ClassVar[int]
+    CARDINAL: ClassVar[int]
 
 class WindowError(Error): ...
+class DrawableError(Error): ...
 
 class SCREEN:
     root: int
@@ -37,14 +39,34 @@ class GetPropertyReply:
     bytes_after: int
     value: List[bytes]
 
+class GetGeometryReply:
+    root: int
+    x: int
+    y: int
+    width: int
+    height: int
+    border_width: int
+
+class TranslateCoordinatesReply:
+    same_screen: bool
+    child: int
+    dst_x: int
+    dst_y: int
+
 class ListExtensionsCookie(Cookie[ListExtensionsReply]): ...
 class InternAtomCookie(Cookie[InternAtomReply]): ...
 class GetPropertyCookie(Cookie[GetPropertyReply]): ...
+class GetGeometryCookie(Cookie[GetGeometryReply]): ...
+class TranslateCoordinatesCookie(Cookie[TranslateCoordinatesReply]): ...
 
 class xprotoExtension:
     def ListExtensions(self, is_checked: bool = ...) -> ListExtensionsCookie: ...
     def InternAtom(
-        self, only_if_exists: bool, name_len: int, name: bytes | str, is_checked: bool = ...
+        self,
+        only_if_exists: bool,
+        name_len: int,
+        name: bytes | str,
+        is_checked: bool = ...,
     ) -> InternAtomCookie: ...
     def GetProperty(
         self,
@@ -56,3 +78,16 @@ class xprotoExtension:
         long_length: int,
         is_checked: bool = ...,
     ) -> GetPropertyCookie: ...
+    def GetGeometry(
+        self,
+        drawable: int,
+        is_checked: bool = ...,
+    ) -> GetGeometryCookie: ...
+    def TranslateCoordinates(
+        self,
+        src_window: int,
+        dst_window: int,
+        src_x: int,
+        src_y: int,
+        is_checked: bool = ...,
+    ) -> TranslateCoordinatesCookie: ...

@@ -8,6 +8,8 @@ from mint_computer_mcp.domain.geometry import (
     Size,
     SnapshotPoint,
     SnapshotRect,
+    bounding_root_rect,
+    intersect_root_rect,
     snapshot_to_root,
 )
 
@@ -88,3 +90,43 @@ def test_floor_scaling_at_edges_and_large_coordinates() -> None:
     assert snapshot_to_root(
         SnapshotPoint(0, 0), capture=RootRect(-3, -2, 10, 10), encoded_size=Size(1, 1)
     ) == RootPoint(-3, -2)
+
+
+def test_intersects_root_rectangles() -> None:
+    first = RootRect(x=-100, y=20, width=200, height=100)
+    second = RootRect(x=0, y=0, width=200, height=200)
+
+    assert intersect_root_rect(first, second) == RootRect(
+        x=0,
+        y=20,
+        width=100,
+        height=100,
+    )
+
+
+def test_disjoint_root_rectangles_do_not_intersect() -> None:
+    assert (
+        intersect_root_rect(
+            RootRect(x=0, y=0, width=10, height=10),
+            RootRect(x=10, y=0, width=10, height=10),
+        )
+        is None
+    )
+
+
+def test_bounds_root_rectangles_with_negative_origins() -> None:
+    assert bounding_root_rect(
+        (
+            RootRect(x=-1920, y=180, width=1920, height=1080),
+            RootRect(x=0, y=0, width=2560, height=1440),
+        )
+    ) == RootRect(
+        x=-1920,
+        y=0,
+        width=4480,
+        height=1440,
+    )
+
+
+def test_empty_root_rect_collection_has_no_bounds() -> None:
+    assert bounding_root_rect(()) is None

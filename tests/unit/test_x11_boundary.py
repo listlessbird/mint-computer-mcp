@@ -15,7 +15,7 @@ import xcffib.xproto
 
 from mint_computer_mcp.domain.geometry import RootRect
 from mint_computer_mcp.domain.identifiers import WindowId
-from mint_computer_mcp.domain.x11 import ProtocolVersion, WindowManagerInfo
+from mint_computer_mcp.domain.x11 import FrameExtents, ProtocolVersion, WindowManagerInfo
 from mint_computer_mcp.native.x11.client import X11Client, X11ConnectionError
 from mint_computer_mcp.native.x11.probe import X11ProbeError, probe_x11
 
@@ -24,6 +24,8 @@ HELPER = 20
 CHECK_ATOM = 100
 NAME_ATOM = 101
 UTF8_ATOM = 102
+EXTENTS_ATOM = 103
+ACTIVE_ATOM = 104
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +67,8 @@ class Core:
     properties: dict[tuple[int, int], Reply] = field(default_factory=dict)
     property_requests: list[dict[str, int | bool]] = field(default_factory=list)
     extension_names: tuple[str, ...] = ()
+    geometries: dict[int, Reply] = field(default_factory=dict)
+    translations: dict[tuple[int, int], Reply] = field(default_factory=dict)
 
     def InternAtom(self, *, only_if_exists: bool, name_len: int, name: bytes) -> Reply:
         assert only_if_exists
@@ -84,6 +88,19 @@ class Core:
                 ]
             )
         )
+
+    def GetGeometry(self, drawable: int) -> Reply:
+        return self.geometries[drawable]
+
+    def TranslateCoordinates(
+        self,
+        src_window: int,
+        dst_window: int,
+        src_x: int,
+        src_y: int,
+    ) -> Reply:
+        assert (src_x, src_y) == (0, 0)
+        return self.translations[src_window, dst_window]
 
 
 @dataclass(slots=True)
@@ -106,6 +123,13 @@ class Randr:
         assert self.version is not None
         assert self.version >= (1, 2)
         self.calls.append("resources")
+        return Reply(SimpleNamespace(outputs=[40]))
+
+    def GetScreenResourcesCurrent(self, root: int) -> Reply:
+        assert root == ROOT
+        assert self.version is not None
+        assert self.version >= (1, 3)
+        self.calls.append("current-resources")
         return Reply(SimpleNamespace(outputs=[40]))
 
     def GetOutputPrimary(self, root: int) -> Reply:
@@ -174,8 +198,8 @@ def connection(monkeypatch: pytest.MonkeyPatch) -> Connection:
         (None, []),
         ((1, 1), ["version"]),
         ((1, 2), ["version", "resources", "output", "crtc"]),
-        ((1, 3), ["version", "resources", "primary", "output", "crtc"]),
-        ((1, 6), ["version", "resources", "primary", "output", "crtc"]),
+        ((1, 3), ["version", "current-resources", "primary", "output", "crtc"]),
+        ((1, 6), ["version", "current-resources", "primary", "output", "crtc"]),
     ],
 )
 def test_randr_version_gates_requests(
@@ -356,3 +380,99 @@ def test_wm_supporting_window_handshake(connection: Connection, handshake: str) 
         3 if handshake in {"valid", "stale-name"} else 2
     )
     assert connection.closed
+
+
+def test_active_window_uses_ewmh_property(connection: Connection) -> None:
+    connection.core.atoms[b"_NET_ACTIVE_WINDOW"] = ACTIVE_ATOM
+    connection.core.properties[ROOT, ACTIVE_ATOM] = window_reply(HELPER)
+
+    with X11Client.connect(":unit-test") as client:
+        assert client.active_window(root=WindowId(ROOT)) == WindowId(HELPER)
+
+
+def test_client_geometry_is_translated_to_root(connection: Connection) -> None:
+    connection.core.geometries[HELPER] = Reply(
+        SimpleNamespace(
+            root=ROOT,
+            x=0,
+            y=0,
+            width=1000,
+            height=700,
+            border_width=0,
+        )
+    )
+    connection.core.translations[HELPER, ROOT] = Reply(
+        SimpleNamespace(
+            same_screen=True,
+            child=0,
+            dst_x=-500,
+            dst_y=100,
+        )
+    )
+
+    with X11Client.connect(":unit-test") as client:
+        assert client.client_geometry(
+            window=WindowId(HELPER),
+            root=WindowId(ROOT),
+        ) == RootRect(
+            x=-500,
+            y=100,
+            width=1000,
+            height=700,
+        )
+
+
+def test_window_frame_geometry_applies_ewmh_extents(connection: Connection) -> None:
+    connection.core.atoms[b"_NET_FRAME_EXTENTS"] = EXTENTS_ATOM
+    connection.core.properties[HELPER, EXTENTS_ATOM] = property_reply(
+        xcffib.xproto.Atom.CARDINAL,
+        32,
+        struct.pack("=IIII", 4, 4, 28, 4),
+    )
+    connection.core.geometries[HELPER] = Reply(
+        SimpleNamespace(
+            root=ROOT,
+            x=0,
+            y=0,
+            width=1000,
+            height=700,
+            border_width=0,
+        )
+    )
+    connection.core.translations[HELPER, ROOT] = Reply(
+        SimpleNamespace(
+            same_screen=True,
+            child=0,
+            dst_x=100,
+            dst_y=100,
+        )
+    )
+
+    with X11Client.connect(":unit-test") as client:
+        assert client.window_frame_geometry(
+            window=WindowId(HELPER),
+            root=WindowId(ROOT),
+        ) == RootRect(
+            x=96,
+            y=72,
+            width=1008,
+            height=732,
+        )
+
+
+def test_frame_extents_reject_negative_values() -> None:
+    with pytest.raises(ValueError, match="nonnegative"):
+        _ = FrameExtents(
+            left=-1,
+            right=0,
+            top=0,
+            bottom=0,
+        )
+
+
+def test_root_rect_reads_current_geometry(connection: Connection) -> None:
+    with X11Client.connect(":unit-test") as client:
+        connection.core.geometries[ROOT] = Reply(SimpleNamespace(width=2000, height=1200))
+        assert client.root_rect() == RootRect(0, 0, 2000, 1200)
+        connection.core.geometries[ROOT] = Reply(SimpleNamespace(width=2500, height=1400))
+        assert client.root_rect() == RootRect(0, 0, 2500, 1400)

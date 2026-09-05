@@ -108,3 +108,6 @@ clean:
 
 probe:
     uv run python -m mint_computer_mcp.native.x11.probe
+
+bench name *args:
+    shift; uv run python "scripts/benchmarks/{{name}}.py" "$@"

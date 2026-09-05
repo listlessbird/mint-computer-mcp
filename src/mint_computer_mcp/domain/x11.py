@@ -87,3 +87,19 @@ class X11ProbeReport:
     def supports(self, extension: X11Extension) -> bool:
         """Return whether the server advertises an extension."""
         return any(status.extension == extension and status.available for status in self.extensions)
+
+
+@dataclass(frozen=True, slots=True)
+class FrameExtents:
+    """Window-manager decoration + control extents (close, min, expand) around an X11 client window."""
+
+    left: int
+    right: int
+    top: int
+    bottom: int
+
+    def __post_init__(self) -> None:
+        """Reject impossible negative extents."""
+        if min(self.left, self.right, self.top, self.bottom) < 0:
+            msg = "frame extents must be nonnegative"
+            raise ValueError(msg)

@@ -8,6 +8,8 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "mss>=10.2,<11",
+    "pillow>=12.3.0",
     "pydantic>=2,<3",
     "xcffib>=1.12.0",
 ]
@@ -48,6 +50,7 @@ ignore = [
 # Local stubs must preserve xcffib's public names and keyword parameters.
 "typings/xcffib/*.pyi" = ["N801", "N802", "N818", "A002"]
 "tests/**/*.py" = ["D", "INP001", "PLR2004", "S101"]
+"scripts/benchmarks/*.py" = ["INP001"] # Standalone executable scripts.
 
 [tool.ruff.lint.flake8-annotations]
 allow-star-arg-any = false
@@ -75,7 +78,7 @@ stubPath = "typings"
 minversion = "9.0"
 testpaths = ["tests"]
 strict = true
-addopts = ["-ra", "--showlocals"]
+addopts = ["-ra", "--showlocals", "--import-mode=importlib"]
 filterwarnings = ["error"]
 markers = [
     "integration: tests requiring a real X11 desktop",
