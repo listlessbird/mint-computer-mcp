@@ -9,11 +9,13 @@ from mint_computer_mcp.backend import (
     BackendCapture,
     BackendError,
     CapabilityUnavailableError,
+    DisplayGenerationMismatchError,
     TargetUnavailableError,
 )
 from mint_computer_mcp.domain.geometry import (
     DesktopLayoutPoint,
     DesktopLayoutRect,
+    RootPoint,
     RootRect,
     Size,
     SnapshotPoint,
@@ -35,6 +37,7 @@ from mint_computer_mcp.domain.observation import (
 from mint_computer_mcp.domain.x11 import ProtocolVersion, RandrOutput
 from mint_computer_mcp.native.x11.capture import X11Capture
 from mint_computer_mcp.native.x11.client import X11Client
+from mint_computer_mcp.native.x11.input import X11Input
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,19 +63,20 @@ class _ActiveWindow:
     rect: RootRect
 
 
-_X11_INPUT_UNAVAILABLE_MESSAGE = "X11 input injection is not implemented"
+_X11_KEYBOARD_INPUT_UNAVAILABLE_MESSAGE = "X11 keyboard input injection is not implemented"
 
 
 @final
 class X11Backend:
     """Persistent X11 observation backend."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - owns the native resources created by connect.
         self,
         *,
         display: str,
         client: X11Client,
         capture: X11Capture,
+        input_: X11Input,
         root: WindowId,
         randr_version: ProtocolVersion,
     ) -> None:
@@ -80,6 +84,7 @@ class X11Backend:
         self._display = display
         self._client = client
         self._capture = capture
+        self._input = input_
         self._root = root
         self._randr_version = randr_version
 
@@ -100,6 +105,10 @@ class X11Backend:
                 msg = "X11 RANDR is required for desktop observation"
                 raise CapabilityUnavailableError(msg)
 
+            if "XTEST" not in extensions:
+                msg = "X11 XTEST is required for input injection"
+                raise CapabilityUnavailableError(msg)
+
             randr_version = client.randr_version()
 
             if (randr_version.major, randr_version.minor) < (1, 2):
@@ -109,13 +118,25 @@ class X11Backend:
                 )
                 raise CapabilityUnavailableError(msg)
 
+            xtest_version = client.xtest_version()
+
+            if (xtest_version.major, xtest_version.minor) < (2, 1):
+                msg = (
+                    "X11 XTEST 2.1 or newer is required for input injection; "
+                    f"server provides {xtest_version.major}.{xtest_version.minor}"
+                )
+                raise CapabilityUnavailableError(msg)
+
             capture = stack.enter_context(X11Capture(display=display))
             root = client.root_window()
+            input_ = X11Input(client=client, root=root)
+            _ = stack.callback(input_.close)
 
             backend = cls(
                 display=display,
                 client=client,
                 capture=capture,
+                input_=input_,
                 root=root,
                 randr_version=randr_version,
             )
@@ -146,10 +167,10 @@ class X11Backend:
         *,
         expected_display_generation: int,
     ) -> None:
-        """Report that X11 pointer injection is not available yet."""
+        """Move the pointer after rejecting an obsolete display layout."""
         self._ensure_open()
-        _ = (point, expected_display_generation)
-        raise CapabilityUnavailableError(_X11_INPUT_UNAVAILABLE_MESSAGE)
+        self._require_display_generation(expected_display_generation)
+        self._input.move_pointer(RootPoint(x=point.x, y=point.y))
 
     def click(
         self,
@@ -158,22 +179,22 @@ class X11Backend:
         *,
         expected_display_generation: int,
     ) -> None:
-        """Report that X11 pointer injection is not available yet."""
+        """Click after rejecting an obsolete display layout."""
         self._ensure_open()
-        _ = (point, button, expected_display_generation)
-        raise CapabilityUnavailableError(_X11_INPUT_UNAVAILABLE_MESSAGE)
+        self._require_display_generation(expected_display_generation)
+        self._input.click(RootPoint(x=point.x, y=point.y), button)
 
     def press_keys(self, keys: tuple[KeyName, ...]) -> None:
         """Report that X11 keyboard injection is not available yet."""
         self._ensure_open()
         _ = keys
-        raise CapabilityUnavailableError(_X11_INPUT_UNAVAILABLE_MESSAGE)
+        raise CapabilityUnavailableError(_X11_KEYBOARD_INPUT_UNAVAILABLE_MESSAGE)
 
     def type_text(self, text: str) -> None:
         """Report that X11 text injection is not available yet."""
         self._ensure_open()
         _ = text
-        raise CapabilityUnavailableError(_X11_INPUT_UNAVAILABLE_MESSAGE)
+        raise CapabilityUnavailableError(_X11_KEYBOARD_INPUT_UNAVAILABLE_MESSAGE)
 
     @property
     def capture_performance_status(self) -> tuple[str, ...]:
@@ -244,9 +265,12 @@ class X11Backend:
         self._closed = True
 
         try:
-            self._capture.close()
+            self._input.close()
         finally:
-            self._client.close()
+            try:
+                self._capture.close()
+            finally:
+                self._client.close()
 
     def __enter__(self) -> Self:
         """Return this backend for scoped ownership."""
@@ -267,6 +291,17 @@ class X11Backend:
         if self._closed:
             msg = "X11 backend is closed"
             raise BackendError(msg)
+
+    def _require_display_generation(self, expected: int) -> None:
+        """Reject input if the X11 display layout changed since resolution."""
+        self._refresh_layout()
+
+        if self._display_generation != expected:
+            msg = (
+                "desktop layout changed before input injection: "
+                f"expected={expected}, actual={self._display_generation}"
+            )
+            raise DisplayGenerationMismatchError(msg)
 
     def _refresh_layout(self) -> None:
         """Refresh RandR layout and invalidate spatial generation on change."""
