@@ -80,6 +80,7 @@ class X11ProbeReport:
     extensions: tuple[ExtensionStatus, ...]
 
     randr_version: ProtocolVersion | None
+    xtest_version: ProtocolVersion | None
     outputs: tuple[RandrOutput, ...]
 
     window_manager: WindowManagerInfo

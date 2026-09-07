@@ -81,14 +81,19 @@ def probe_x11() -> X11ProbeReport:
             )
 
             randr_available = "RANDR" in exts
+            xtest_available = "XTEST" in exts
 
             randr_version: ProtocolVersion | None = None
+            xtest_version: ProtocolVersion | None = None
             outputs = ()
 
             if randr_available:
                 randr_version = client.randr_version()
                 if (randr_version.major, randr_version.minor) >= (1, 2):
                     outputs = client.randr_outputs(root=root, version=randr_version)
+
+            if xtest_available:
+                xtest_version = client.xtest_version()
 
             return X11ProbeReport(
                 session_type=session_type,
@@ -101,6 +106,7 @@ def probe_x11() -> X11ProbeReport:
                 screens=client.screens(),
                 extensions=exts_status,
                 randr_version=randr_version,
+                xtest_version=xtest_version,
                 outputs=outputs,
                 window_manager=_probe_wm(client=client, root=root),
             )
@@ -139,6 +145,18 @@ def format_probe_report(report: X11ProbeReport) -> str:
         available = "yes" if status.available else "no"
 
         lines.append(f"  {status.extension.value:<10} {available}")
+
+    lines.extend(
+        [
+            "",
+            "XTEST",
+        ]
+    )
+
+    if report.xtest_version is None:
+        lines.append("  unavailable")
+    else:
+        lines.append(f"  version: {report.xtest_version.major}.{report.xtest_version.minor}")
 
     lines.extend(
         [

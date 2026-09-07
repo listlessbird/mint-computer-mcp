@@ -283,7 +283,9 @@ def test_randr_version_gates_requests(
     assert report.randr_version == (
         None if version is None else ProtocolVersion(major=version[0], minor=version[1])
     )
+    assert report.xtest_version is None
     assert connection.randr.calls == calls
+    assert connection.xtest.version_calls == 0
     if version is not None and version >= (1, 2):
         assert len(report.outputs) == 1
         output = report.outputs[0]
@@ -293,6 +295,26 @@ def test_randr_version_gates_requests(
         assert output.primary == (version >= (1, 3))
     else:
         assert report.outputs == ()
+    assert connection.closed
+
+
+@pytest.mark.parametrize("version", [None, (2, 1), (2, 2)])
+def test_probe_negotiates_xtest_without_sending_input(
+    connection: Connection,
+    version: tuple[int, int] | None,
+) -> None:
+    connection.core.extension_names = () if version is None else ("XTEST",)
+    if version is not None:
+        connection.xtest.version = version
+
+    report = probe_x11()
+
+    assert report.xtest_version == (
+        None if version is None else ProtocolVersion(major=version[0], minor=version[1])
+    )
+    assert connection.xtest.version_calls == (0 if version is None else 1)
+    assert connection.xtest.fake_input_calls == []
+    assert connection.flush_calls == 0
     assert connection.closed
 
 

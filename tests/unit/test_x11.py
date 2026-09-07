@@ -30,6 +30,7 @@ def test_probe_report_reports_supported_extension() -> None:
             ),
         ),
         randr_version=None,
+        xtest_version=ProtocolVersion(major=2, minor=2),
         outputs=(),
         window_manager=WindowManagerInfo(
             ewmh_detected=False,
