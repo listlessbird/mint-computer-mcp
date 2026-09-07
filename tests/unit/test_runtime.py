@@ -8,11 +8,14 @@ from mint_computer_mcp.backend import (
     PixelFormat,
     PixelFrame,
 )
-from mint_computer_mcp.domain.geometry import Size, SnapshotPoint
-from mint_computer_mcp.domain.identifiers import OutputRef
-from mint_computer_mcp.domain.observation import (
+from mint_computer_mcp.domain.geometry import (
     DesktopLayoutPoint,
     DesktopLayoutRect,
+    Size,
+    SnapshotPoint,
+)
+from mint_computer_mcp.domain.identifiers import OutputRef
+from mint_computer_mcp.domain.observation import (
     DesktopState,
     DesktopTarget,
     ObservationTarget,

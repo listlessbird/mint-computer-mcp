@@ -132,3 +132,31 @@ def bounding_root_rect(rects: Iterable[RootRect]) -> RootRect | None:
         width=right - left,
         height=bottom - top,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopLayoutPoint:
+    """A resolved point in the backend's desktop layout space."""
+
+    x: int
+    y: int
+
+
+@dataclass(frozen=True, slots=True)
+class DesktopLayoutRect:
+    """A rectangle in the desktop backend's logical layout space."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+
+    def __post_init__(self) -> None:
+        """Reject empty or inverted dimensions."""
+        if self.width <= 0:
+            msg = "width must be positive"
+            raise ValueError(msg)
+
+        if self.height <= 0:
+            msg = "height must be positive"
+            raise ValueError(msg)

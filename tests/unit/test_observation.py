@@ -1,6 +1,6 @@
 import pytest
 
-from mint_computer_mcp.domain.observation import DesktopLayoutRect
+from mint_computer_mcp.domain.geometry import DesktopLayoutRect
 
 
 @pytest.mark.parametrize(

@@ -12,6 +12,8 @@ from mint_computer_mcp.backend import (
     TargetUnavailableError,
 )
 from mint_computer_mcp.domain.geometry import (
+    DesktopLayoutPoint,
+    DesktopLayoutRect,
     RootRect,
     Size,
     SnapshotPoint,
@@ -22,8 +24,6 @@ from mint_computer_mcp.domain.geometry import (
 from mint_computer_mcp.domain.identifiers import OutputRef, WindowId, WindowRef
 from mint_computer_mcp.domain.observation import (
     ActiveWindowTarget,
-    DesktopLayoutPoint,
-    DesktopLayoutRect,
     DesktopState,
     DesktopTarget,
     ObservationTarget,

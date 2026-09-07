@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from mint_computer_mcp.domain.geometry import Size, SnapshotPoint
+from mint_computer_mcp.domain.geometry import DesktopLayoutPoint, Size, SnapshotPoint
 from mint_computer_mcp.domain.observation import (
-    DesktopLayoutPoint,
     DesktopState,
     ObservationTarget,
     OutputInfo,

@@ -8,10 +8,9 @@ from types import TracebackType
 from typing import Self, final
 
 from mint_computer_mcp.backend import DesktopBackend
-from mint_computer_mcp.domain.geometry import SnapshotPoint
+from mint_computer_mcp.domain.geometry import DesktopLayoutPoint, SnapshotPoint
 from mint_computer_mcp.domain.identifiers import SnapshotId
 from mint_computer_mcp.domain.observation import (
-    DesktopLayoutPoint,
     Observation,
     ObservationTarget,
     OutputInfo,

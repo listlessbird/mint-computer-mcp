@@ -6,11 +6,10 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from mint_computer_mcp.backend import PixelFormat, PixelFrame, TargetUnavailableError
-from mint_computer_mcp.domain.geometry import RootRect, Size, SnapshotPoint
+from mint_computer_mcp.domain.geometry import DesktopLayoutPoint, RootRect, Size, SnapshotPoint
 from mint_computer_mcp.domain.identifiers import OutputRef, RandrOutputId, WindowId
 from mint_computer_mcp.domain.observation import (
     ActiveWindowTarget,
-    DesktopLayoutPoint,
     DesktopTarget,
     OutputTarget,
 )
