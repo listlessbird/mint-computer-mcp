@@ -22,6 +22,7 @@ from mint_computer_mcp.domain.geometry import (
     snapshot_to_root,
 )
 from mint_computer_mcp.domain.identifiers import OutputRef, WindowId, WindowRef
+from mint_computer_mcp.domain.input import KeyName, PointerButton
 from mint_computer_mcp.domain.observation import (
     ActiveWindowTarget,
     DesktopState,
@@ -57,6 +58,9 @@ class _ActiveWindow:
 
     info: WindowInfo
     rect: RootRect
+
+
+_X11_INPUT_UNAVAILABLE_MESSAGE = "X11 input injection is not implemented"
 
 
 @final
@@ -135,6 +139,41 @@ class X11Backend:
         self._ensure_open()
         root = snapshot_to_root(point, capture=state.capture_rect, encoded_size=encoded_size)
         return DesktopLayoutPoint(x=root.x, y=root.y)
+
+    def move_pointer(
+        self,
+        point: DesktopLayoutPoint,
+        *,
+        expected_display_generation: int,
+    ) -> None:
+        """Report that X11 pointer injection is not available yet."""
+        self._ensure_open()
+        _ = (point, expected_display_generation)
+        raise CapabilityUnavailableError(_X11_INPUT_UNAVAILABLE_MESSAGE)
+
+    def click(
+        self,
+        point: DesktopLayoutPoint,
+        button: PointerButton,
+        *,
+        expected_display_generation: int,
+    ) -> None:
+        """Report that X11 pointer injection is not available yet."""
+        self._ensure_open()
+        _ = (point, button, expected_display_generation)
+        raise CapabilityUnavailableError(_X11_INPUT_UNAVAILABLE_MESSAGE)
+
+    def press_keys(self, keys: tuple[KeyName, ...]) -> None:
+        """Report that X11 keyboard injection is not available yet."""
+        self._ensure_open()
+        _ = keys
+        raise CapabilityUnavailableError(_X11_INPUT_UNAVAILABLE_MESSAGE)
+
+    def type_text(self, text: str) -> None:
+        """Report that X11 text injection is not available yet."""
+        self._ensure_open()
+        _ = text
+        raise CapabilityUnavailableError(_X11_INPUT_UNAVAILABLE_MESSAGE)
 
     @property
     def capture_performance_status(self) -> tuple[str, ...]:

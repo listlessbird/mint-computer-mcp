@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import Protocol
 
 from mint_computer_mcp.domain.geometry import DesktopLayoutPoint, Size, SnapshotPoint
+from mint_computer_mcp.domain.input import KeyName, PointerButton
 from mint_computer_mcp.domain.observation import (
     DesktopState,
     ObservationTarget,
@@ -28,6 +29,22 @@ class PixelFormat(StrEnum):
     """Raw CPU pixel layouts accepted by the image encoder."""
 
     BGRX = "bgrx"
+
+
+class DisplayGenerationMismatchError(BackendError):
+    """Raised when a spatial action targets an obsolete desktop layout."""
+
+
+class UnsupportedKeyError(BackendError):
+    """Raised when the current keyboard map cannot resolve a requested key."""
+
+
+class UnsupportedTextInputError(BackendError):
+    """Raised when literal text cannot be produced safely with the current keyboard map."""
+
+
+class InputStateUncertainError(BackendError):
+    """Raised after synthetic input cleanup could not be guaranteed."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,4 +113,22 @@ class DesktopBackend[SnapshotStateT](Protocol):
 
     def close(self) -> None:
         """Release backend-owned native resources."""
+        ...
+
+    def move_pointer(self, point: DesktopLayoutPoint, *, expected_display_generation: int) -> None:
+        """Move the pointer."""
+        ...
+
+    def click(
+        self, point: DesktopLayoutPoint, button: PointerButton, *, expected_display_generation: int
+    ) -> None:
+        """Perform a click at a point."""
+        ...
+
+    def press_keys(self, keys: tuple[KeyName, ...]) -> None:
+        """Invoke keys."""
+        ...
+
+    def type_text(self, text: str) -> None:
+        """Type literal text."""
         ...

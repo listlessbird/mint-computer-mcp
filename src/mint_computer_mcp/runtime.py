@@ -5,11 +5,12 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from time import monotonic
 from types import TracebackType
-from typing import Self, final
+from typing import Self, assert_never, final
 
-from mint_computer_mcp.backend import DesktopBackend
+from mint_computer_mcp.backend import DesktopBackend, DisplayGenerationMismatchError
 from mint_computer_mcp.domain.geometry import DesktopLayoutPoint, SnapshotPoint
 from mint_computer_mcp.domain.identifiers import SnapshotId
+from mint_computer_mcp.domain.input import Click, InputAction, MovePointer, PressKeys, TypeText
 from mint_computer_mcp.domain.observation import (
     Observation,
     ObservationTarget,
@@ -103,8 +104,8 @@ class DesktopRuntime[SnapshotStateT]:
 
     def resolve_point(self, snapshot_id: SnapshotId, point: SnapshotPoint) -> DesktopLayoutPoint:
         """Resolve a snapshot pixel after validating its display layout."""
-        entry = self._snapshot_entry(snapshot_id)
-        return self._backend.resolve_point(entry.backend_state, point, entry.snapshot.encoded_size)
+        resolved, _ = self._resolve_action_point(snapshot_id, point)
+        return resolved
 
     def _snapshot_entry(self, snapshot_id: SnapshotId) -> _SnapshotEntry[SnapshotStateT]:
         """Look up retained coordinate state and reject obsolete display layouts."""
@@ -117,7 +118,7 @@ class DesktopRuntime[SnapshotStateT]:
             raise StaleSnapshotError(msg)
 
         if entry.snapshot.display_generation != self._backend.display_generation:
-            del self._snapshots[snapshot_id]
+            self._snapshots.clear()
             msg = f"snapshot belongs to an old display layout: {snapshot_id}"
             raise StaleSnapshotError(msg)
 
@@ -168,3 +169,65 @@ class DesktopRuntime[SnapshotStateT]:
         if self._closed:
             msg = "desktop runtime is closed"
             raise DesktopRuntimeClosedError(msg)
+
+    def _resolve_action_point(
+        self, snapshot_id: SnapshotId, point: SnapshotPoint
+    ) -> tuple[DesktopLayoutPoint, int]:
+        entry = self._snapshot_entry(snapshot_id)
+
+        resolved = self._backend.resolve_point(
+            entry.backend_state, point, entry.snapshot.encoded_size
+        )
+
+        return resolved, entry.snapshot.display_generation
+
+    def act(self, action: InputAction) -> None:
+        """Handle an action."""
+        self._ensure_open()
+
+        match action:
+            case MovePointer(snapshot_id=snapshot_id, point=point):
+                resolved, generation = self._resolve_action_point(
+                    snapshot_id,
+                    point,
+                )
+
+                try:
+                    self._backend.move_pointer(
+                        resolved,
+                        expected_display_generation=generation,
+                    )
+                except DisplayGenerationMismatchError as exc:
+                    self._snapshots.clear()
+                    msg = f"snapshot became stale before pointer movement: {snapshot_id}"
+                    raise StaleSnapshotError(msg) from exc
+
+            case Click(
+                snapshot_id=snapshot_id,
+                point=point,
+                button=button,
+            ):
+                resolved, generation = self._resolve_action_point(
+                    snapshot_id,
+                    point,
+                )
+
+                try:
+                    self._backend.click(
+                        resolved,
+                        button,
+                        expected_display_generation=generation,
+                    )
+                except DisplayGenerationMismatchError as exc:
+                    self._snapshots.clear()
+                    msg = f"snapshot became stale before click: {snapshot_id}"
+                    raise StaleSnapshotError(msg) from exc
+
+            case TypeText(text=text):
+                self._backend.type_text(text)
+
+            case PressKeys(keys=keys):
+                self._backend.press_keys(keys)
+
+            case _:
+                assert_never(action)
