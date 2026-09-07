@@ -12,11 +12,12 @@ import pytest
 import xcffib
 import xcffib.randr
 import xcffib.xproto
+import xcffib.xtest
 
-from mint_computer_mcp.domain.geometry import RootRect
-from mint_computer_mcp.domain.identifiers import WindowId
+from mint_computer_mcp.domain.geometry import RootPoint, RootRect
+from mint_computer_mcp.domain.identifiers import WindowId, X11Keycode
 from mint_computer_mcp.domain.x11 import FrameExtents, ProtocolVersion, WindowManagerInfo
-from mint_computer_mcp.native.x11.client import X11Client, X11ConnectionError
+from mint_computer_mcp.native.x11.client import X11Client, X11ConnectionError, X11Error
 from mint_computer_mcp.native.x11.probe import X11ProbeError, probe_x11
 
 ROOT = 10
@@ -153,15 +154,78 @@ class Randr:
 
 
 @dataclass(slots=True)
+class FakeInputCall:
+    event_type: int
+    detail: int
+    time: int
+    root: int
+    root_x: int
+    root_y: int
+    device_id: int
+    is_checked: bool
+    check_called: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class VoidRequest:
+    call: FakeInputCall
+
+    def check(self) -> None:
+        assert self.call.is_checked
+        self.call.check_called = True
+
+
+@dataclass(slots=True)
+class Xtest:
+    version: tuple[int, int] = (2, 2)
+    version_calls: int = 0
+    fake_input_calls: list[FakeInputCall] = field(default_factory=list)
+
+    def GetVersion(self, major: int, minor: int) -> Reply:
+        assert (major, minor) == (xcffib.xtest.MAJOR_VERSION, xcffib.xtest.MINOR_VERSION)
+        self.version_calls += 1
+        return Reply(SimpleNamespace(major_version=self.version[0], minor_version=self.version[1]))
+
+    def FakeInput(  # noqa: PLR0913, PLR0917 - mirrors xcffib's generated request.
+        self,
+        event_type: int,
+        detail: int,
+        time: int,
+        root: int,
+        root_x: int,
+        root_y: int,
+        device_id: int,
+        *,
+        is_checked: bool,
+    ) -> VoidRequest:
+        call = FakeInputCall(
+            event_type=event_type,
+            detail=detail,
+            time=time,
+            root=root,
+            root_x=root_x,
+            root_y=root_y,
+            device_id=device_id,
+            is_checked=is_checked,
+        )
+        self.fake_input_calls.append(call)
+        return VoidRequest(call)
+
+
+@dataclass(slots=True)
 class Connection:
     core: Core = field(default_factory=Core)
     randr: Randr = field(default_factory=Randr)
+    xtest: Xtest = field(default_factory=Xtest)
     pref_screen: int = 0
     closed: bool = False
+    flush_calls: int = 0
 
-    def __call__(self, key: object) -> Randr:
-        assert key is xcffib.randr.key
-        return self.randr
+    def __call__(self, key: object) -> Randr | Xtest:
+        if key is xcffib.randr.key:
+            return self.randr
+        assert key is xcffib.xtest.key
+        return self.xtest
 
     def get_setup(self) -> SimpleNamespace:
         return SimpleNamespace(
@@ -174,6 +238,10 @@ class Connection:
 
     def disconnect(self) -> None:
         self.closed = True
+
+    def flush(self) -> int:
+        self.flush_calls += 1
+        return 1
 
 
 @pytest.fixture
@@ -226,6 +294,130 @@ def test_randr_version_gates_requests(
     else:
         assert report.outputs == ()
     assert connection.closed
+
+
+def test_xtest_version_is_negotiated_once(connection: Connection) -> None:
+    connection.xtest.version = (2, 1)
+
+    with X11Client.connect(":unit-test") as client:
+        assert client.xtest_version() == ProtocolVersion(major=2, minor=1)
+        assert client.xtest_version() == ProtocolVersion(major=2, minor=1)
+
+    assert connection.xtest.version_calls == 1
+
+
+def test_xtest_sends_narrow_checked_input_requests(connection: Connection) -> None:
+    with X11Client.connect(":unit-test") as client:
+        client.xtest_pointer_motion(root=WindowId(ROOT), point=RootPoint(x=-40, y=50))
+        client.xtest_button(root=WindowId(ROOT), button=3, pressed=True)
+        client.xtest_button(root=WindowId(ROOT), button=3, pressed=False)
+        client.xtest_key(root=WindowId(ROOT), keycode=X11Keycode(38), pressed=True)
+        client.xtest_key(root=WindowId(ROOT), keycode=X11Keycode(38), pressed=False)
+        client.flush()
+
+    assert connection.xtest.version_calls == 1
+    assert [
+        (
+            call.event_type,
+            call.detail,
+            call.time,
+            call.root,
+            call.root_x,
+            call.root_y,
+            call.device_id,
+            call.is_checked,
+            call.check_called,
+        )
+        for call in connection.xtest.fake_input_calls
+    ] == [
+        (6, 0, xcffib.CurrentTime, ROOT, -40, 50, 0, True, True),
+        (4, 3, xcffib.CurrentTime, ROOT, 0, 0, 0, True, True),
+        (5, 3, xcffib.CurrentTime, ROOT, 0, 0, 0, True, True),
+        (2, 38, xcffib.CurrentTime, ROOT, 0, 0, 0, True, True),
+        (3, 38, xcffib.CurrentTime, ROOT, 0, 0, 0, True, True),
+    ]
+    assert connection.flush_calls == 1
+
+
+def test_xtest_protocol_range_boundaries_are_accepted(connection: Connection) -> None:
+    connection.xtest.version = (2, 1)
+
+    with X11Client.connect(":unit-test") as client:
+        client.xtest_pointer_motion(
+            root=WindowId(ROOT),
+            point=RootPoint(x=-(2**15), y=2**15 - 1),
+        )
+        client.xtest_button(root=WindowId(ROOT), button=0, pressed=True)
+        client.xtest_button(root=WindowId(ROOT), button=255, pressed=False)
+        client.xtest_key(root=WindowId(ROOT), keycode=X11Keycode(8), pressed=True)
+        client.xtest_key(root=WindowId(ROOT), keycode=X11Keycode(255), pressed=False)
+
+    assert len(connection.xtest.fake_input_calls) == 5
+
+
+@pytest.mark.parametrize(
+    ("point", "name"),
+    [
+        (RootPoint(-(2**15) - 1, 0), "root X coordinate"),
+        (RootPoint(2**15, 0), "root X coordinate"),
+        (RootPoint(0, -(2**15) - 1), "root Y coordinate"),
+        (RootPoint(0, 2**15), "root Y coordinate"),
+    ],
+)
+def test_xtest_pointer_motion_rejects_coordinates_outside_i16(
+    connection: Connection,
+    point: RootPoint,
+    name: str,
+) -> None:
+    with X11Client.connect(":unit-test") as client, pytest.raises(X11Error, match=name):
+        client.xtest_pointer_motion(root=WindowId(ROOT), point=point)
+
+    assert connection.xtest.version_calls == 0
+    assert connection.xtest.fake_input_calls == []
+
+
+@pytest.mark.parametrize("button", [-1, 256])
+def test_xtest_button_rejects_values_outside_u8(
+    connection: Connection,
+    button: int,
+) -> None:
+    with X11Client.connect(":unit-test") as client, pytest.raises(X11Error, match="button detail"):
+        client.xtest_button(root=WindowId(ROOT), button=button, pressed=True)
+
+    assert connection.xtest.version_calls == 0
+    assert connection.xtest.fake_input_calls == []
+
+
+@pytest.mark.parametrize("keycode", [7, 256])
+def test_xtest_key_rejects_values_outside_core_range(
+    connection: Connection,
+    keycode: int,
+) -> None:
+    with (
+        X11Client.connect(":unit-test") as client,
+        pytest.raises(X11Error, match="core keycode range"),
+    ):
+        client.xtest_key(root=WindowId(ROOT), keycode=X11Keycode(keycode), pressed=True)
+
+    assert connection.xtest.version_calls == 0
+    assert connection.xtest.fake_input_calls == []
+
+
+@pytest.mark.parametrize("version", [(1, 0), (2, 0)])
+def test_xtest_fake_input_requires_version_2_1(
+    connection: Connection,
+    version: tuple[int, int],
+) -> None:
+    connection.xtest.version = version
+
+    with (
+        X11Client.connect(":unit-test") as client,
+        pytest.raises(X11Error, match=r"XTEST 2\.1 or newer"),
+    ):
+        client.xtest_button(root=WindowId(ROOT), button=1, pressed=True)
+
+    assert connection.xtest.version_calls == 1
+    assert connection.xtest.fake_input_calls == []
 
 
 @pytest.mark.parametrize(

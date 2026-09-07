@@ -8,9 +8,10 @@ from typing import Self
 import xcffib
 import xcffib.randr
 import xcffib.xproto
+import xcffib.xtest
 
-from mint_computer_mcp.domain.geometry import RootRect, Size
-from mint_computer_mcp.domain.identifiers import AtomId, RandrOutputId, WindowId
+from mint_computer_mcp.domain.geometry import RootPoint, RootRect, Size
+from mint_computer_mcp.domain.identifiers import AtomId, RandrOutputId, WindowId, X11Keycode
 from mint_computer_mcp.domain.x11 import FrameExtents, ProtocolVersion, RandrOutput, X11Screen
 
 """
@@ -31,6 +32,17 @@ _PROPERTY_FORMAT_32 = 32
 _PROPERTY_FORMAT_8 = 8
 _WINDOW_VALUE = struct.Struct("=I")
 _FRAME_EXTENTS = struct.Struct("=IIII")
+_KEY_PRESS = 2
+_KEY_RELEASE = 3
+_BUTTON_PRESS = 4
+_BUTTON_RELEASE = 5
+_MOTION_NOTIFY = 6
+_I16_MIN = -(2**15)
+_I16_MAX = 2**15 - 1
+_U8_MIN = 0
+_U8_MAX = 2**8 - 1
+_X11_KEYCODE_MIN = 8
+_XTEST_FAKE_INPUT_MIN_VERSION = (2, 1)
 
 
 class X11Error(RuntimeError):
@@ -41,6 +53,34 @@ class X11ConnectionError(X11Error):
     """Raised when the X server connection or preferred screen is invalid."""
 
 
+def _require_i16(value: int, *, name: str) -> int:
+    """Reject values that XTEST cannot encode as signed 16-bit coordinates."""
+    if not _I16_MIN <= value <= _I16_MAX:
+        msg = f"{name} is outside the X11 INT16 coordinate range: {value}"
+        raise X11Error(msg)
+
+    return value
+
+
+def _require_u8(value: int, *, name: str) -> int:
+    """Reject values that XTEST cannot encode as unsigned 8-bit fields."""
+    if not _U8_MIN <= value <= _U8_MAX:
+        msg = f"{name} is outside the X11 UINT8 range: {value}"
+        raise X11Error(msg)
+
+    return value
+
+
+def _require_keycode(keycode: X11Keycode) -> int:
+    """Reject values outside the core X11 keycode range."""
+    value = int(keycode)
+    if not _X11_KEYCODE_MIN <= value <= _U8_MAX:
+        msg = f"keycode is outside the X11 core keycode range: {value}"
+        raise X11Error(msg)
+
+    return value
+
+
 class X11Client:
     """Translate xcffib replies into domain types."""
 
@@ -48,6 +88,7 @@ class X11Client:
         """Wrap an existing connection and take responsibility for closing it."""
         self._connection: xcffib.Connection = connection
         self._atoms: dict[str, AtomId] = {}
+        self._xtest_protocol_version: ProtocolVersion | None = None
 
     @classmethod
     def connect(cls, display: str) -> Self:
@@ -297,6 +338,74 @@ class X11Client:
             minor=int(reply.minor_version),
         )
 
+    def xtest_version(self) -> ProtocolVersion:
+        """Negotiate and return the XTEST protocol version."""
+        if self._xtest_protocol_version is None:
+            xtest = self._connection(xcffib.xtest.key)
+            reply = xtest.GetVersion(
+                xcffib.xtest.MAJOR_VERSION,
+                xcffib.xtest.MINOR_VERSION,
+            ).reply()
+            self._xtest_protocol_version = ProtocolVersion(
+                major=int(reply.major_version),
+                minor=int(reply.minor_version),
+            )
+
+        return self._xtest_protocol_version
+
+    def xtest_pointer_motion(self, *, root: WindowId, point: RootPoint) -> None:
+        """Move the core pointer to an absolute root coordinate."""
+        root_x = _require_i16(point.x, name="root X coordinate")
+        root_y = _require_i16(point.y, name="root Y coordinate")
+        xtest = self._xtest_for_fake_input()
+        cookie = xtest.FakeInput(
+            _MOTION_NOTIFY,
+            0,
+            xcffib.CurrentTime,
+            int(root),
+            root_x,
+            root_y,
+            0,
+            is_checked=True,
+        )
+        cookie.check()
+
+    def xtest_button(self, *, root: WindowId, button: int, pressed: bool) -> None:
+        """Send one core pointer button transition."""
+        detail = _require_u8(button, name="button detail")
+        xtest = self._xtest_for_fake_input()
+        cookie = xtest.FakeInput(
+            _BUTTON_PRESS if pressed else _BUTTON_RELEASE,
+            detail,
+            xcffib.CurrentTime,
+            int(root),
+            0,
+            0,
+            0,
+            is_checked=True,
+        )
+        cookie.check()
+
+    def xtest_key(self, *, root: WindowId, keycode: X11Keycode, pressed: bool) -> None:
+        """Send one core keyboard key transition."""
+        detail = _require_keycode(keycode)
+        xtest = self._xtest_for_fake_input()
+        cookie = xtest.FakeInput(
+            _KEY_PRESS if pressed else _KEY_RELEASE,
+            detail,
+            xcffib.CurrentTime,
+            int(root),
+            0,
+            0,
+            0,
+            is_checked=True,
+        )
+        cookie.check()
+
+    def flush(self) -> None:
+        """Flush queued X11 requests to the server."""
+        _ = self._connection.flush()
+
     def randr_outputs(
         self,
         *,
@@ -422,3 +531,15 @@ class X11Client:
             raise X11ConnectionError(msg)
 
         return screens[index]
+
+    def _xtest_for_fake_input(self) -> xcffib.xtest.xtestExtension:
+        """Return XTEST after verifying that FakeInput is available."""
+        version = self.xtest_version()
+        if (version.major, version.minor) < _XTEST_FAKE_INPUT_MIN_VERSION:
+            msg = (
+                "XTEST 2.1 or newer is required for FakeInput; "
+                f"server provides {version.major}.{version.minor}"
+            )
+            raise X11Error(msg)
+
+        return self._connection(xcffib.xtest.key)

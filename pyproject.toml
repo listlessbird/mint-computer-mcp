@@ -48,7 +48,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Local stubs must preserve xcffib's public names and keyword parameters.
-"typings/xcffib/*.pyi" = ["N801", "N802", "N818", "A002"]
+"typings/xcffib/*.pyi" = ["N801", "N802", "N803", "N818", "A002"]
 "tests/**/*.py" = ["D", "INP001", "PLR2004", "S101"]
 "scripts/benchmarks/*.py" = ["INP001"] # Standalone executable scripts.
 

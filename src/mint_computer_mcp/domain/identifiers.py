@@ -12,5 +12,6 @@ WindowRef = NewType("WindowRef", str)
 
 # x11 specific identifiers
 WindowId = NewType("WindowId", int)
+X11Keycode = NewType("X11Keycode", int)
 RandrOutputId = NewType("RandrOutputId", int)
 AtomId = NewType("AtomId", int)
