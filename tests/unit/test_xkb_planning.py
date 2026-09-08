@@ -69,14 +69,16 @@ def keyboard(
 ) -> tuple[XkbKeyboard, SnapshotLibrary]:
     library = SnapshotLibrary(layout, components)
     context = library.common.xkb_context_new(0)
-    return XkbKeyboard(
+    board = object.__new__(XkbKeyboard)
+    board._initialize(  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
         client=cast("X11Client", object()),
         common=library.common,
         x11=cast("xkb._XkbX11Lib", cast("object", library)),  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
         connection=ffi.NULL,
         context=context,
         setup=XkbSetup(version=ProtocolVersion(major=1, minor=0), device_id=1),
-    ), library
+    )
+    return board, library
 
 
 def test_fresh_map_for_each_action_and_no_hidden_chord_modifiers() -> None:
@@ -153,3 +155,16 @@ def test_unsupported_text_reports_only_codepoint_and_index(
     with board, pytest.raises(UnsupportedTextInputError) as error:
         _ = board.plan_text(text)
     assert str(error.value) == f"unsupported codepoint U+{codepoint} at character index {index}"
+
+
+def test_effective_group_controls_resolution_and_text() -> None:
+    board, _ = keyboard("us+de:2", (0, 0, 0, 0, 0, 1))
+    with board:
+        assert board.resolve_key_names((KeyName("y"),)) == (52,)
+        assert board.plan_text("y")[0].key == 52
+
+
+def test_dead_key_sequence_is_not_planned() -> None:
+    board, _ = keyboard("de")
+    with board, pytest.raises(UnsupportedTextInputError, match=r"U\+00E9"):
+        _ = board.plan_text("é")

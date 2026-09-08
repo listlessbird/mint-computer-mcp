@@ -77,6 +77,13 @@ class X11Input:
         codes = self._get_keyboard().resolve_key_names(keys)
         self._inject_chord(codes)
 
+    def type_text(self, text: str) -> None:
+        """Plan every character before emitting the first key event."""
+        self._ensure_healthy()
+        plans = self._get_keyboard().plan_text(text)
+        for plan in plans:
+            self._inject_chord((*plan.modifiers, plan.key))
+
     def _inject_chord(self, codes: tuple[X11Keycode, ...]) -> None:
         held: list[X11Keycode] = []
         try:

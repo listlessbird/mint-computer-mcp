@@ -275,6 +275,20 @@ def _new_context(library: _XkbCommonLib) -> CData:
 
 
 @dataclass(frozen=True, slots=True)
+class _KeyboardState:
+    depressed_mods: int
+    latched_mods: int
+    locked_mods: int
+    depressed_layout: int
+    latched_layout: int
+    locked_layout: int
+
+    @property
+    def persistent(self) -> tuple[int, int, int, int]:
+        return self.latched_mods, self.locked_mods, self.latched_layout, self.locked_layout
+
+
+@dataclass(frozen=True, slots=True)
 class KeyStroke:
     """One literal key event and its explicitly synthesized modifiers."""
 
@@ -286,7 +300,7 @@ class KeyStroke:
 class XkbKeyboard:
     """Borrow one XCB connection and own its xkbcommon context."""
 
-    def __init__(  # noqa: PLR0913
+    def _initialize(  # noqa: PLR0913
         self,
         *,
         client: X11Client,
@@ -305,16 +319,14 @@ class XkbKeyboard:
         self._setup = setup
         self._closed = False
 
-    @classmethod
-    def connect(cls, client: X11Client) -> Self:
+    def __init__(self, *, client: X11Client) -> None:
         """Inspect the core keyboard through the X11 client's connection."""
         common, x11 = _load_libraries()
         connection = _borrow_xcb_connection(client)
         version = _setup_xkb(library=x11, connection=connection)
         device_id = _core_keyboard_device(library=x11, connection=connection)
         context = _new_context(common)
-
-        return cls(
+        self._initialize(
             client=client,
             common=common,
             x11=x11,
@@ -322,6 +334,11 @@ class XkbKeyboard:
             context=context,
             setup=XkbSetup(version=version, device_id=device_id),
         )
+
+    @classmethod
+    def connect(cls, client: X11Client) -> Self:
+        """Create a keyboard boundary without exposing native pointers."""
+        return cls(client=client)
 
     @property
     def protocol_version(self) -> ProtocolVersion:
@@ -396,7 +413,7 @@ class XkbKeyboard:
         """Plan the entire string from a fresh map; never emit input while planning."""
         with self._snapshot() as (keymap, state):
             baseline = self._state_components(state)
-            if baseline[1] or baseline[4]:
+            if baseline.latched_mods or baseline.latched_layout:
                 msg = "literal text is unsafe while an XKB modifier or group latch is active"
                 raise KeyboardStateConflictError(msg)
             plans, conflicts = self._text_candidates(keymap, state, baseline)
@@ -406,7 +423,7 @@ class XkbKeyboard:
                     self._unsupported(character, index)
                 plan = plans.get(character)
                 if plan is None:
-                    if character in conflicts or baseline[0]:
+                    if character in conflicts or baseline.depressed_mods:
                         msg = f"unconsumed keyboard modifiers at character index {index}"
                         raise KeyboardStateConflictError(msg)
                     self._unsupported(character, index)
@@ -418,8 +435,8 @@ class XkbKeyboard:
         msg = f"unsupported codepoint U+{ord(character):04X} at character index {index}"
         raise UnsupportedTextInputError(msg)
 
-    def _state_components(self, state: CData) -> tuple[int, int, int, int, int, int]:
-        return (
+    def _state_components(self, state: CData) -> _KeyboardState:
+        return _KeyboardState(
             self._common.xkb_state_serialize_mods(state, 1),
             self._common.xkb_state_serialize_mods(state, 2),
             self._common.xkb_state_serialize_mods(state, 4),
@@ -428,16 +445,25 @@ class XkbKeyboard:
             self._common.xkb_state_serialize_layout(state, 64),
         )
 
+    def _restore_state(self, state: CData, baseline: _KeyboardState) -> None:
+        _ = self._common.xkb_state_update_mask(
+            state,
+            baseline.depressed_mods,
+            baseline.latched_mods,
+            baseline.locked_mods,
+            baseline.depressed_layout,
+            baseline.latched_layout,
+            baseline.locked_layout,
+        )
+
     @contextmanager
-    def _candidate_state(
-        self, keymap: CData, baseline: tuple[int, int, int, int, int, int]
-    ) -> Generator[CData]:
+    def _candidate_state(self, keymap: CData, baseline: _KeyboardState) -> Generator[CData]:
         state = self._common.xkb_state_new(keymap)
         if state == ffi.NULL:
             msg = "could not create candidate XKB state"
             raise XkbError(msg)
         try:
-            _ = self._common.xkb_state_update_mask(state, *baseline)
+            self._restore_state(state, baseline)
             yield state
         finally:
             self._common.xkb_state_unref(state)
@@ -475,7 +501,7 @@ class XkbKeyboard:
         return ffi.string(buffer).decode("utf-8")
 
     def _text_candidates(
-        self, keymap: CData, state: CData, baseline: tuple[int, int, int, int, int, int]
+        self, keymap: CData, state: CData, baseline: _KeyboardState
     ) -> tuple[dict[str, KeyStroke], set[str]]:
         plans: dict[str, KeyStroke] = {}
         conflicts: set[str] = set()
@@ -493,8 +519,8 @@ class XkbKeyboard:
                     if redundant:
                         continue
                     components = self._state_components(candidate)
-                    # Synthetic selectors must not latch, lock, or change groups.
-                    if components[1:] != baseline[1:]:
+                    # Synthetic selectors may shift groups, but must not latch or lock.
+                    if components.persistent != baseline.persistent:
                         continue
                     for modifier in reversed(chord):
                         _ = self._common.xkb_state_update_key(candidate, modifier, 0)
@@ -530,7 +556,7 @@ class XkbKeyboard:
             during = self._state_components(state)
             _ = self._common.xkb_state_update_key(state, key, 0)
             if during != before or self._state_components(state) != before:
-                _ = self._common.xkb_state_update_mask(state, *before)
+                self._restore_state(state, before)
                 continue
             plan = KeyStroke(modifiers=modifiers, key=X11Keycode(key))
             previous = plans.get(literal)

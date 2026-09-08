@@ -63,9 +63,6 @@ class _ActiveWindow:
     rect: RootRect
 
 
-_X11_KEYBOARD_INPUT_UNAVAILABLE_MESSAGE = "X11 keyboard input injection is not implemented"
-
-
 @final
 class X11Backend:
     """Persistent X11 observation backend."""
@@ -190,10 +187,9 @@ class X11Backend:
         self._input.press_keys(keys)
 
     def type_text(self, text: str) -> None:
-        """Report that X11 text injection is not available yet."""
+        """Plan and inject literal text available in the current XKB map."""
         self._ensure_open()
-        _ = text
-        raise CapabilityUnavailableError(_X11_KEYBOARD_INPUT_UNAVAILABLE_MESSAGE)
+        self._input.type_text(text)
 
     @property
     def capture_performance_status(self) -> tuple[str, ...]:
