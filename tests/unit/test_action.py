@@ -7,8 +7,18 @@ from mint_computer_mcp.api.action import (
     KeyPressAction,
     MoveAction,
     TypeTextAction,
+    to_domain_action,
 )
+from mint_computer_mcp.domain.geometry import SnapshotPoint
 from mint_computer_mcp.domain.identifiers import SnapshotId
+from mint_computer_mcp.domain.input import (
+    Click,
+    KeyName,
+    MovePointer,
+    PointerButton,
+    PressKeys,
+    TypeText,
+)
 
 adapter = TypeAdapter[DesktopAction](DesktopAction)
 
@@ -48,6 +58,7 @@ def test_action_json_round_trip(action: DesktopAction) -> None:
         ({"x": 1}, "union_tag_not_found"),
         ({"kind": "key_press", "keys": ()}, "too_short"),
         ({"kind": "key_press", "keys": ("",)}, "string_too_short"),
+        ({"kind": "type_text", "text": ""}, "string_too_short"),
     ],
 )
 def test_invalid_actions(payload: dict[str, object], error_type: str) -> None:
@@ -64,3 +75,51 @@ def test_json_key_array_and_snapshot_identifier() -> None:
     assert isinstance(action, ClickAction)
     assert action.snapshot_id == SnapshotId("s1")
     assert action.button == "left"
+
+
+def test_click_action_converts_to_domain() -> None:
+    action = ClickAction(
+        kind="click",
+        snapshot_id=SnapshotId("snap_1"),
+        x=12,
+        y=34,
+        button="right",
+    )
+
+    assert to_domain_action(action) == Click(
+        snapshot_id=SnapshotId("snap_1"),
+        point=SnapshotPoint(12, 34),
+        button=PointerButton.RIGHT,
+    )
+
+
+def test_move_action_converts_to_domain() -> None:
+    action = MoveAction(
+        kind="move",
+        snapshot_id=SnapshotId("snap_1"),
+        x=12,
+        y=34,
+    )
+
+    assert to_domain_action(action) == MovePointer(
+        snapshot_id=SnapshotId("snap_1"),
+        point=SnapshotPoint(12, 34),
+    )
+
+
+def test_type_text_action_converts_to_domain() -> None:
+    assert to_domain_action(TypeTextAction(kind="type_text", text="hello")) == TypeText("hello")
+
+
+def test_key_press_action_converts_to_domain() -> None:
+    assert to_domain_action(
+        KeyPressAction(
+            kind="key_press",
+            keys=("Control_L", "a"),
+        )
+    ) == PressKeys(
+        (
+            KeyName("Control_L"),
+            KeyName("a"),
+        )
+    )
