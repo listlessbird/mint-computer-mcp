@@ -7,10 +7,11 @@ import pytest
 
 from mint_computer_mcp.backend import InputStateUncertainError
 from mint_computer_mcp.domain.geometry import RootPoint
-from mint_computer_mcp.domain.identifiers import WindowId
-from mint_computer_mcp.domain.input import PointerButton
+from mint_computer_mcp.domain.identifiers import WindowId, X11Keycode
+from mint_computer_mcp.domain.input import KeyName, PointerButton
 from mint_computer_mcp.native.x11.client import X11Client, X11Error
 from mint_computer_mcp.native.x11.input import X11Input
+from mint_computer_mcp.native.x11.xkb import XkbKeyboard
 
 ROOT = WindowId(10)
 
@@ -29,6 +30,14 @@ class Client:
     def xtest_button(self, *, root: WindowId, button: int, pressed: bool) -> None:
         assert root == ROOT
         self.calls.append(("button", button, pressed))
+        if not pressed and self.release_failures:
+            self.release_failures -= 1
+            msg = "synthetic release failure"
+            raise X11Error(msg)
+
+    def xtest_key(self, *, root: WindowId, keycode: X11Keycode, pressed: bool) -> None:
+        assert root == ROOT
+        self.calls.append(("key", keycode, pressed))
         if not pressed and self.release_failures:
             self.release_failures -= 1
             msg = "synthetic release failure"
@@ -109,4 +118,27 @@ def test_click_becomes_unhealthy_when_release_cleanup_also_fails() -> None:
         ("button", 1, True),
         ("button", 1, False),
         ("button", 1, False),
+    ]
+
+
+class Keyboard:
+    def resolve_key_names(self, names: tuple[KeyName, ...]) -> tuple[X11Keycode, ...]:
+        assert names == (KeyName("Control_L"), KeyName("a"))
+        return (X11Keycode(50), X11Keycode(70))
+
+
+def test_chord_preserves_order(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = Client()
+
+    def connect(_client: X11Client) -> XkbKeyboard:
+        return cast("XkbKeyboard", cast("object", Keyboard()))
+
+    monkeypatch.setattr(XkbKeyboard, "connect", connect)
+    x11_input(client).press_keys((KeyName("Control_L"), KeyName("a")))
+    assert client.calls == [
+        ("key", 50, True),
+        ("key", 70, True),
+        ("key", 70, False),
+        ("key", 50, False),
+        ("flush",),
     ]

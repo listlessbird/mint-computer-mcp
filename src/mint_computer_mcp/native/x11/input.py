@@ -7,8 +7,9 @@ import xcffib
 from mint_computer_mcp.backend import InputStateUncertainError
 from mint_computer_mcp.domain.geometry import RootPoint
 from mint_computer_mcp.domain.identifiers import WindowId
-from mint_computer_mcp.domain.input import PointerButton
+from mint_computer_mcp.domain.input import KeyName, PointerButton
 from mint_computer_mcp.native.x11.client import X11Client, X11Error
+from mint_computer_mcp.native.x11.xkb import XkbKeyboard
 
 
 def _button_code(button: PointerButton) -> int:
@@ -33,6 +34,7 @@ class X11Input:
         self._client = client
         self._root = root
         self._healthy = True
+        self._keyboard: XkbKeyboard | None = None
 
     def move_pointer(self, point: RootPoint) -> None:
         """Move the pointer and flush the request."""
@@ -63,8 +65,25 @@ class X11Input:
 
             self._client.flush()
 
+    def _get_keyboard(self) -> XkbKeyboard:
+        if self._keyboard is None:
+            self._keyboard = XkbKeyboard.connect(self._client)
+        return self._keyboard
+
+    def press_keys(self, keys: tuple[KeyName, ...]) -> None:
+        """Press in tuple order and release in reverse order without hidden modifiers."""
+        self._ensure_healthy()
+        codes = self._get_keyboard().resolve_key_names(keys)
+        for code in codes:
+            self._client.xtest_key(root=self._root, keycode=code, pressed=True)
+        for code in reversed(codes):
+            self._client.xtest_key(root=self._root, keycode=code, pressed=False)
+        self._client.flush()
+
     def close(self) -> None:
         """Release input-owned resources."""
+        if self._keyboard is not None:
+            self._keyboard.close()
 
     def _ensure_healthy(self) -> None:
         """Reject input after held-state cleanup could not be guaranteed."""

@@ -185,10 +185,9 @@ class X11Backend:
         self._input.click(RootPoint(x=point.x, y=point.y), button)
 
     def press_keys(self, keys: tuple[KeyName, ...]) -> None:
-        """Report that X11 keyboard injection is not available yet."""
+        """Inject an explicitly ordered key chord."""
         self._ensure_open()
-        _ = keys
-        raise CapabilityUnavailableError(_X11_KEYBOARD_INPUT_UNAVAILABLE_MESSAGE)
+        self._input.press_keys(keys)
 
     def type_text(self, text: str) -> None:
         """Report that X11 text injection is not available yet."""
