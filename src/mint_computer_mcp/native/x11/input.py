@@ -6,7 +6,7 @@ import xcffib
 
 from mint_computer_mcp.backend import InputStateUncertainError
 from mint_computer_mcp.domain.geometry import RootPoint
-from mint_computer_mcp.domain.identifiers import WindowId
+from mint_computer_mcp.domain.identifiers import WindowId, X11Keycode
 from mint_computer_mcp.domain.input import KeyName, PointerButton
 from mint_computer_mcp.native.x11.client import X11Client, X11Error
 from mint_computer_mcp.native.x11.xkb import XkbKeyboard
@@ -34,6 +34,7 @@ class X11Input:
         self._client = client
         self._root = root
         self._healthy = True
+        self._keyboard_uncertain = False
         self._keyboard: XkbKeyboard | None = None
 
     def move_pointer(self, point: RootPoint) -> None:
@@ -74,11 +75,33 @@ class X11Input:
         """Press in tuple order and release in reverse order without hidden modifiers."""
         self._ensure_healthy()
         codes = self._get_keyboard().resolve_key_names(keys)
-        for code in codes:
-            self._client.xtest_key(root=self._root, keycode=code, pressed=True)
-        for code in reversed(codes):
-            self._client.xtest_key(root=self._root, keycode=code, pressed=False)
-        self._client.flush()
+        self._inject_chord(codes)
+
+    def _inject_chord(self, codes: tuple[X11Keycode, ...]) -> None:
+        held: list[X11Keycode] = []
+        try:
+            for code in codes:
+                self._client.xtest_key(root=self._root, keycode=code, pressed=True)
+                held.append(code)
+            while held:
+                self._client.xtest_key(root=self._root, keycode=held[-1], pressed=False)
+                _ = held.pop()
+        finally:
+            cleanup_error: Exception | None = None
+            for code in reversed(held):
+                try:
+                    self._client.xtest_key(root=self._root, keycode=code, pressed=False)
+                except (X11Error, xcffib.XcffibException) as exc:
+                    cleanup_error = exc
+            try:
+                self._client.flush()
+            except (X11Error, xcffib.XcffibException) as exc:
+                cleanup_error = exc
+            if cleanup_error is not None:
+                self._healthy = False
+                self._keyboard_uncertain = True
+                msg = "synthetic keyboard state could not be safely restored"
+                raise InputStateUncertainError(msg) from cleanup_error
 
     def close(self) -> None:
         """Release input-owned resources."""
@@ -87,6 +110,9 @@ class X11Input:
 
     def _ensure_healthy(self) -> None:
         """Reject input after held-state cleanup could not be guaranteed."""
+        if self._keyboard_uncertain:
+            msg = "synthetic keyboard state could not be safely restored"
+            raise InputStateUncertainError(msg)
         if not self._healthy:
             msg = "X11 input state is uncertain after failed cleanup"
             raise InputStateUncertainError(msg)

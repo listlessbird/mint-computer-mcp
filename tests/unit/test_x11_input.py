@@ -142,3 +142,24 @@ def test_chord_preserves_order(monkeypatch: pytest.MonkeyPatch) -> None:
         ("key", 50, False),
         ("flush",),
     ]
+
+
+@pytest.mark.parametrize("failures", [1, 2])
+def test_keyboard_cleanup_attempts_every_owned_key(
+    monkeypatch: pytest.MonkeyPatch, failures: int
+) -> None:
+    def connect(_client: X11Client) -> XkbKeyboard:
+        return cast("XkbKeyboard", cast("object", Keyboard()))
+
+    monkeypatch.setattr(XkbKeyboard, "connect", connect)
+    client = Client(release_failures=failures)
+    input_ = x11_input(client)
+    expected = InputStateUncertainError if failures == 2 else X11Error
+    with pytest.raises(expected):
+        input_.press_keys((KeyName("Control_L"), KeyName("a")))
+    assert client.calls[-3:] == [("key", 70, False), ("key", 50, False), ("flush",)]
+    if failures == 2:
+        with pytest.raises(InputStateUncertainError, match="safely restored"):
+            input_.move_pointer(RootPoint(x=0, y=0))
+    else:
+        input_.move_pointer(RootPoint(x=0, y=0))
