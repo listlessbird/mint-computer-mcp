@@ -1,0 +1,504 @@
+# serializer version: 1
+# name: test_server_tool_schemas
+  dict({
+    'desktop_act': dict({
+      'input_schema': dict({
+        '$defs': dict({
+          'ClickAction': dict({
+            'additionalProperties': False,
+            'description': 'Click a pixel in a previously observed snapshot.',
+            'properties': dict({
+              'button': dict({
+                'default': 'left',
+                'enum': list([
+                  'left',
+                  'middle',
+                  'right',
+                ]),
+                'title': 'Button',
+                'type': 'string',
+              }),
+              'kind': dict({
+                'const': 'click',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+              'snapshot_id': dict({
+                'title': 'Snapshot Id',
+                'type': 'string',
+              }),
+              'x': dict({
+                'minimum': 0,
+                'title': 'X',
+                'type': 'integer',
+              }),
+              'y': dict({
+                'minimum': 0,
+                'title': 'Y',
+                'type': 'integer',
+              }),
+            }),
+            'required': list([
+              'kind',
+              'snapshot_id',
+              'x',
+              'y',
+            ]),
+            'title': 'ClickAction',
+            'type': 'object',
+          }),
+          'KeyPressAction': dict({
+            'additionalProperties': False,
+            'description': 'Press one nonempty ordered key chord.',
+            'properties': dict({
+              'keys': dict({
+                'items': dict({
+                  'minLength': 1,
+                  'type': 'string',
+                }),
+                'minItems': 1,
+                'title': 'Keys',
+                'type': 'array',
+              }),
+              'kind': dict({
+                'const': 'key_press',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'kind',
+              'keys',
+            ]),
+            'title': 'KeyPressAction',
+            'type': 'object',
+          }),
+          'MoveAction': dict({
+            'additionalProperties': False,
+            'description': 'Move to a pixel in a previously observed snapshot.',
+            'properties': dict({
+              'kind': dict({
+                'const': 'move',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+              'snapshot_id': dict({
+                'title': 'Snapshot Id',
+                'type': 'string',
+              }),
+              'x': dict({
+                'minimum': 0,
+                'title': 'X',
+                'type': 'integer',
+              }),
+              'y': dict({
+                'minimum': 0,
+                'title': 'Y',
+                'type': 'integer',
+              }),
+            }),
+            'required': list([
+              'kind',
+              'snapshot_id',
+              'x',
+              'y',
+            ]),
+            'title': 'MoveAction',
+            'type': 'object',
+          }),
+          'TypeTextAction': dict({
+            'additionalProperties': False,
+            'description': 'Type nonempty literal text.',
+            'properties': dict({
+              'kind': dict({
+                'const': 'type_text',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+              'text': dict({
+                'minLength': 1,
+                'title': 'Text',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'kind',
+              'text',
+            ]),
+            'title': 'TypeTextAction',
+            'type': 'object',
+          }),
+        }),
+        'properties': dict({
+          'action': dict({
+            'discriminator': dict({
+              'mapping': dict({
+                'click': '#/$defs/ClickAction',
+                'key_press': '#/$defs/KeyPressAction',
+                'move': '#/$defs/MoveAction',
+                'type_text': '#/$defs/TypeTextAction',
+              }),
+              'propertyName': 'kind',
+            }),
+            'oneOf': list([
+              dict({
+                '$ref': '#/$defs/ClickAction',
+              }),
+              dict({
+                '$ref': '#/$defs/MoveAction',
+              }),
+              dict({
+                '$ref': '#/$defs/TypeTextAction',
+              }),
+              dict({
+                '$ref': '#/$defs/KeyPressAction',
+              }),
+            ]),
+            'title': 'Action',
+          }),
+        }),
+        'required': list([
+          'action',
+        ]),
+        'title': 'desktop_actArguments',
+        'type': 'object',
+      }),
+      'output_schema': dict({
+        'additionalProperties': False,
+        'description': 'Successful completion of one runtime input action.',
+        'properties': dict({
+          'status': dict({
+            'const': 'completed',
+            'default': 'completed',
+            'title': 'Status',
+            'type': 'string',
+          }),
+        }),
+        'title': 'ActionResult',
+        'type': 'object',
+      }),
+    }),
+    'desktop_observe': dict({
+      'input_schema': dict({
+        '$defs': dict({
+          'ActiveWindowObservationTarget': dict({
+            'additionalProperties': False,
+            'description': 'Observe the visible active window.',
+            'properties': dict({
+              'kind': dict({
+                'const': 'active_window',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'kind',
+            ]),
+            'title': 'ActiveWindowObservationTarget',
+            'type': 'object',
+          }),
+          'DesktopObservationTarget': dict({
+            'additionalProperties': False,
+            'description': 'Observe the complete visible desktop.',
+            'properties': dict({
+              'kind': dict({
+                'const': 'desktop',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'kind',
+            ]),
+            'title': 'DesktopObservationTarget',
+            'type': 'object',
+          }),
+          'OutputObservationTarget': dict({
+            'additionalProperties': False,
+            'description': 'Observe one desktop output.',
+            'properties': dict({
+              'kind': dict({
+                'const': 'output',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+              'output': dict({
+                'title': 'Output',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'kind',
+              'output',
+            ]),
+            'title': 'OutputObservationTarget',
+            'type': 'object',
+          }),
+        }),
+        'properties': dict({
+          'target': dict({
+            'default': dict({
+              'kind': 'desktop',
+            }),
+            'discriminator': dict({
+              'mapping': dict({
+                'active_window': '#/$defs/ActiveWindowObservationTarget',
+                'desktop': '#/$defs/DesktopObservationTarget',
+                'output': '#/$defs/OutputObservationTarget',
+              }),
+              'propertyName': 'kind',
+            }),
+            'oneOf': list([
+              dict({
+                '$ref': '#/$defs/DesktopObservationTarget',
+              }),
+              dict({
+                '$ref': '#/$defs/ActiveWindowObservationTarget',
+              }),
+              dict({
+                '$ref': '#/$defs/OutputObservationTarget',
+              }),
+            ]),
+            'title': 'Target',
+          }),
+        }),
+        'title': 'desktop_observeArguments',
+        'type': 'object',
+      }),
+      'output_schema': dict({
+        '$defs': dict({
+          'ActiveWindowObservationTarget': dict({
+            'additionalProperties': False,
+            'description': 'Observe the visible active window.',
+            'properties': dict({
+              'kind': dict({
+                'const': 'active_window',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'kind',
+            ]),
+            'title': 'ActiveWindowObservationTarget',
+            'type': 'object',
+          }),
+          'DesktopObservationTarget': dict({
+            'additionalProperties': False,
+            'description': 'Observe the complete visible desktop.',
+            'properties': dict({
+              'kind': dict({
+                'const': 'desktop',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'kind',
+            ]),
+            'title': 'DesktopObservationTarget',
+            'type': 'object',
+          }),
+          'ImageSize': dict({
+            'additionalProperties': False,
+            'description': 'Pixel dimensions.',
+            'properties': dict({
+              'height': dict({
+                'exclusiveMinimum': 0,
+                'title': 'Height',
+                'type': 'integer',
+              }),
+              'width': dict({
+                'exclusiveMinimum': 0,
+                'title': 'Width',
+                'type': 'integer',
+              }),
+            }),
+            'required': list([
+              'width',
+              'height',
+            ]),
+            'title': 'ImageSize',
+            'type': 'object',
+          }),
+          'LayoutRect': dict({
+            'additionalProperties': False,
+            'description': 'Rectangle in the backend-neutral desktop layout.',
+            'properties': dict({
+              'height': dict({
+                'exclusiveMinimum': 0,
+                'title': 'Height',
+                'type': 'integer',
+              }),
+              'width': dict({
+                'exclusiveMinimum': 0,
+                'title': 'Width',
+                'type': 'integer',
+              }),
+              'x': dict({
+                'title': 'X',
+                'type': 'integer',
+              }),
+              'y': dict({
+                'title': 'Y',
+                'type': 'integer',
+              }),
+            }),
+            'required': list([
+              'x',
+              'y',
+              'width',
+              'height',
+            ]),
+            'title': 'LayoutRect',
+            'type': 'object',
+          }),
+          'OutputMetadata': dict({
+            'additionalProperties': False,
+            'description': 'Visible desktop output metadata.',
+            'properties': dict({
+              'layout': dict({
+                '$ref': '#/$defs/LayoutRect',
+              }),
+              'name': dict({
+                'title': 'Name',
+                'type': 'string',
+              }),
+              'primary': dict({
+                'title': 'Primary',
+                'type': 'boolean',
+              }),
+              'ref': dict({
+                'title': 'Ref',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'ref',
+              'name',
+              'layout',
+              'primary',
+            ]),
+            'title': 'OutputMetadata',
+            'type': 'object',
+          }),
+          'OutputObservationTarget': dict({
+            'additionalProperties': False,
+            'description': 'Observe one desktop output.',
+            'properties': dict({
+              'kind': dict({
+                'const': 'output',
+                'title': 'Kind',
+                'type': 'string',
+              }),
+              'output': dict({
+                'title': 'Output',
+                'type': 'string',
+              }),
+            }),
+            'required': list([
+              'kind',
+              'output',
+            ]),
+            'title': 'OutputObservationTarget',
+            'type': 'object',
+          }),
+          'WindowMetadata': dict({
+            'additionalProperties': False,
+            'description': 'Observed active-window metadata.',
+            'properties': dict({
+              'layout': dict({
+                '$ref': '#/$defs/LayoutRect',
+              }),
+              'ref': dict({
+                'title': 'Ref',
+                'type': 'string',
+              }),
+              'title': dict({
+                'anyOf': list([
+                  dict({
+                    'type': 'string',
+                  }),
+                  dict({
+                    'type': 'null',
+                  }),
+                ]),
+                'title': 'Title',
+              }),
+            }),
+            'required': list([
+              'ref',
+              'title',
+              'layout',
+            ]),
+            'title': 'WindowMetadata',
+            'type': 'object',
+          }),
+        }),
+        'additionalProperties': False,
+        'description': 'Structured metadata accompanying one JPEG observation.',
+        'properties': dict({
+          'active_window': dict({
+            'anyOf': list([
+              dict({
+                '$ref': '#/$defs/WindowMetadata',
+              }),
+              dict({
+                'type': 'null',
+              }),
+            ]),
+          }),
+          'encoded_size': dict({
+            '$ref': '#/$defs/ImageSize',
+          }),
+          'outputs': dict({
+            'items': dict({
+              '$ref': '#/$defs/OutputMetadata',
+            }),
+            'title': 'Outputs',
+            'type': 'array',
+          }),
+          'snapshot_id': dict({
+            'title': 'Snapshot Id',
+            'type': 'string',
+          }),
+          'source_size': dict({
+            '$ref': '#/$defs/ImageSize',
+          }),
+          'target': dict({
+            'discriminator': dict({
+              'mapping': dict({
+                'active_window': '#/$defs/ActiveWindowObservationTarget',
+                'desktop': '#/$defs/DesktopObservationTarget',
+                'output': '#/$defs/OutputObservationTarget',
+              }),
+              'propertyName': 'kind',
+            }),
+            'oneOf': list([
+              dict({
+                '$ref': '#/$defs/DesktopObservationTarget',
+              }),
+              dict({
+                '$ref': '#/$defs/ActiveWindowObservationTarget',
+              }),
+              dict({
+                '$ref': '#/$defs/OutputObservationTarget',
+              }),
+            ]),
+            'title': 'Target',
+          }),
+        }),
+        'required': list([
+          'snapshot_id',
+          'target',
+          'source_size',
+          'encoded_size',
+          'outputs',
+          'active_window',
+        ]),
+        'title': 'ObserveMetadata',
+        'type': 'object',
+      }),
+    }),
+  })
+# ---
