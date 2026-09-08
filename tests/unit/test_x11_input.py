@@ -201,7 +201,6 @@ def test_text_is_fully_planned_before_any_injection(
         assert client.calls == [
             ("key", 70, True),
             ("key", 70, False),
-            ("flush",),
             ("key", 50, True),
             ("key", 70, True),
             ("key", 70, False),

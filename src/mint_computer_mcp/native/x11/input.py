@@ -1,5 +1,6 @@
 """Stateful X11 input injection built on narrow XTEST operations."""
 
+from collections.abc import Iterable
 from typing import assert_never, final
 
 import xcffib
@@ -75,24 +76,24 @@ class X11Input:
         """Press in tuple order and release in reverse order without hidden modifiers."""
         self._ensure_healthy()
         codes = self._get_keyboard().resolve_key_names(keys)
-        self._inject_chord(codes)
+        self._inject_chords((codes,))
 
     def type_text(self, text: str) -> None:
         """Plan every character before emitting the first key event."""
         self._ensure_healthy()
         plans = self._get_keyboard().plan_text(text)
-        for plan in plans:
-            self._inject_chord((*plan.modifiers, plan.key))
+        self._inject_chords((*plan.modifiers, plan.key) for plan in plans)
 
-    def _inject_chord(self, codes: tuple[X11Keycode, ...]) -> None:
+    def _inject_chords(self, chords: Iterable[tuple[X11Keycode, ...]]) -> None:
         held: list[X11Keycode] = []
         try:
-            for code in codes:
-                self._client.xtest_key(root=self._root, keycode=code, pressed=True)
-                held.append(code)
-            while held:
-                self._client.xtest_key(root=self._root, keycode=held[-1], pressed=False)
-                _ = held.pop()
+            for codes in chords:
+                for code in codes:
+                    self._client.xtest_key(root=self._root, keycode=code, pressed=True)
+                    held.append(code)
+                while held:
+                    self._client.xtest_key(root=self._root, keycode=held[-1], pressed=False)
+                    _ = held.pop()
         finally:
             cleanup_error: Exception | None = None
             for code in reversed(held):
