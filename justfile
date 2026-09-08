@@ -43,7 +43,7 @@ quick: lint type
 # Run the standard local quality gate.
 check: fmt-check lint type test
 
-# Run the complete suite. Requires an explicitly authorized X11 test desktop.
+# Run the complete suite: observation on DISPLAY, input on isolated Xvfb.
 check-all: fmt-check lint type test-all
 
 # Apply safe fixes and formatting, then validate.
@@ -56,11 +56,11 @@ fix:
 test:
     uv run pytest -m "not integration"
 
-# Run all tests. Requires an explicitly authorized X11 test desktop.
+# Run all tests: observation on DISPLAY, input on isolated Xvfb.
 test-all:
     uv run pytest
 
-# Run integration tests on an explicitly authorized X11 test desktop.
+# Run integration tests: observation on DISPLAY, input on isolated Xvfb.
 test-integration:
     uv run pytest -m integration
 

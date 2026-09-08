@@ -7,7 +7,7 @@ Linux Mint X11 computer-use MCP server. Python 3.12+, managed with uv.
 - `just check` runs format checks, lint, types, and non-integration tests.
 - `just quick` runs lint and type checks during implementation.
 - `just fix` applies formatting and safe lint fixes, then runs the quality gate.
-- `just test-integration` runs tests requiring an explicitly authorized X11 test desktop.
+- `just test-integration` runs observation tests on `DISPLAY` and input tests on an isolated Xvfb server. Requires Xvfb.
 - `just` lists all commands.
 
 Run relevant checks before finishing a change. Never manipulate the real desktop without explicit authorization.
