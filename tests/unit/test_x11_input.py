@@ -51,8 +51,12 @@ class Client:
         self.calls.append(("flush",))
 
 
-def x11_input(client: Client) -> X11Input:
-    return X11Input(client=cast("X11Client", cast("object", client)), root=ROOT)
+def x11_input(client: Client, keyboard: XkbKeyboard | None = None) -> X11Input:
+    return X11Input(
+        client=cast("X11Client", cast("object", client)),
+        root=ROOT,
+        keyboard=keyboard or cast("XkbKeyboard", cast("object", Keyboard())),
+    )
 
 
 def test_move_pointer_sends_motion_then_flushes() -> None:
@@ -191,7 +195,7 @@ def test_text_is_fully_planned_before_any_injection(
 
     monkeypatch.setattr(XkbKeyboard, "connect", connect)
     monkeypatch.setattr(XkbKeyboard, "plan_text", plan_text)
-    input_ = x11_input(client)
+    input_ = x11_input(client, object.__new__(XkbKeyboard))
     if unsupported:
         with pytest.raises(UnsupportedTextInputError):
             input_.type_text("aA")

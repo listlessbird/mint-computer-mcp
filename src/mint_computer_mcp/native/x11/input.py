@@ -30,13 +30,13 @@ def _button_code(button: PointerButton) -> int:
 class X11Input:
     """Inject X11 input while tracking whether held-state cleanup is reliable."""
 
-    def __init__(self, *, client: X11Client, root: WindowId) -> None:
+    def __init__(self, *, client: X11Client, root: WindowId, keyboard: XkbKeyboard) -> None:
         """Bind input injection to one client and root window."""
         self._client = client
         self._root = root
         self._healthy = True
         self._keyboard_uncertain = False
-        self._keyboard: XkbKeyboard | None = None
+        self._keyboard = keyboard
 
     def move_pointer(self, point: RootPoint) -> None:
         """Move the pointer and flush the request."""
@@ -67,21 +67,16 @@ class X11Input:
 
             self._client.flush()
 
-    def _get_keyboard(self) -> XkbKeyboard:
-        if self._keyboard is None:
-            self._keyboard = XkbKeyboard.connect(self._client)
-        return self._keyboard
-
     def press_keys(self, keys: tuple[KeyName, ...]) -> None:
         """Press in tuple order and release in reverse order without hidden modifiers."""
         self._ensure_healthy()
-        codes = self._get_keyboard().resolve_key_names(keys)
+        codes = self._keyboard.resolve_key_names(keys)
         self._inject_chords((codes,))
 
     def type_text(self, text: str) -> None:
         """Plan every character before emitting the first key event."""
         self._ensure_healthy()
-        plans = self._get_keyboard().plan_text(text)
+        plans = self._keyboard.plan_text(text)
         self._inject_chords((*plan.modifiers, plan.key) for plan in plans)
 
     def _inject_chords(self, chords: Iterable[tuple[X11Keycode, ...]]) -> None:
@@ -113,8 +108,7 @@ class X11Input:
 
     def close(self) -> None:
         """Release input-owned resources."""
-        if self._keyboard is not None:
-            self._keyboard.close()
+        self._keyboard.close()
 
     def _ensure_healthy(self) -> None:
         """Reject input after held-state cleanup could not be guaranteed."""

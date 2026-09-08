@@ -21,7 +21,7 @@ from mint_computer_mcp.domain.geometry import (
     SnapshotPoint,
 )
 from mint_computer_mcp.domain.identifiers import OutputRef, RandrOutputId, WindowId
-from mint_computer_mcp.domain.input import PointerButton
+from mint_computer_mcp.domain.input import KeyName, PointerButton
 from mint_computer_mcp.domain.observation import (
     ActiveWindowTarget,
     DesktopTarget,
@@ -31,6 +31,7 @@ from mint_computer_mcp.domain.x11 import ProtocolVersion, RandrOutput
 from mint_computer_mcp.native.x11.backend import X11Backend
 from mint_computer_mcp.native.x11.capture import X11Capture
 from mint_computer_mcp.native.x11.client import X11Client
+from mint_computer_mcp.native.x11.xkb import XkbKeyboard
 
 if TYPE_CHECKING:
     from mint_computer_mcp.native.x11.input import X11Input
@@ -139,10 +140,37 @@ class Capture:
 
 
 @dataclass(slots=True)
+class Keyboard:
+    closed: bool = False
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@dataclass(slots=True)
 class Input:
+    chords: list[tuple[KeyName, ...]] = field(default_factory=list)
+    texts: list[str] = field(default_factory=list)
     moves: list[RootPoint] = field(default_factory=list)
     clicks: list[tuple[RootPoint, PointerButton]] = field(default_factory=list)
     close_order: list[str] | None = None
+
+    def press_keys(self, keys: tuple[KeyName, ...]) -> None:
+        self.chords.append(keys)
+
+    def type_text(self, text: str) -> None:
+        self.texts.append(text)
 
     def move_pointer(self, point: RootPoint) -> None:
         self.moves.append(point)
@@ -172,6 +200,7 @@ def patch_connect(
     *,
     client: Client,
     capture: Capture,
+    keyboard: Keyboard | None = None,
 ) -> None:
     def connect(display: str) -> X11Client:
         assert display == ":unit-test"
@@ -182,6 +211,12 @@ def patch_connect(
         client.connect_calls.append("capture")
         return cast("X11Capture", cast("object", capture))
 
+    def connect_keyboard(native_client: X11Client) -> XkbKeyboard:
+        assert native_client is client
+        client.connect_calls.append("xkb")
+        return cast("XkbKeyboard", cast("object", keyboard or Keyboard()))
+
+    monkeypatch.setattr(XkbKeyboard, "connect", staticmethod(connect_keyboard))
     monkeypatch.setattr(X11Client, "connect", staticmethod(connect))
     monkeypatch.setattr("mint_computer_mcp.native.x11.backend.X11Capture", create_capture)
 
@@ -250,6 +285,7 @@ def test_connect_negotiates_protocols_before_native_owners(
         "extensions",
         "randr-version",
         "xtest-version",
+        "xkb",
         "capture",
         "root",
     ]
@@ -385,3 +421,58 @@ def test_backend_closes_native_owners_in_dependency_order() -> None:
     backend(client, capture, input_).close()
 
     assert close_order == ["input", "capture", "client"]
+
+
+def test_keyboard_actions_preserve_display_generation_and_snapshots() -> None:
+    input_ = Input()
+    native = backend(Client(), Capture(), input_)
+    with DesktopRuntime(native) as runtime:
+        observation = runtime.observe(DesktopTarget())
+        native.press_keys((KeyName("Caps_Lock"),))
+        native.type_text("Hello")
+        assert native.display_generation == observation.snapshot.display_generation
+        assert runtime.resolve_point(
+            observation.snapshot.id, SnapshotPoint(0, 0)
+        ) == DesktopLayoutPoint(0, 0)
+    assert input_.chords == [(KeyName("Caps_Lock"),)]
+    assert input_.texts == ["Hello"]
+    with pytest.raises(RuntimeError, match="closed"):
+        native.press_keys((KeyName("a"),))
+    with pytest.raises(RuntimeError, match="closed"):
+        native.type_text("a")
+    assert len(input_.chords) == len(input_.texts) == 1
+
+
+def test_capture_setup_failure_closes_keyboard_and_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, capture, keyboard = Client(), Capture(), Keyboard()
+    patch_connect(monkeypatch, client=client, capture=capture, keyboard=keyboard)
+
+    def fail_capture(*, display: str) -> X11Capture:
+        assert display == ":unit-test"
+        msg = "capture setup failed"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr("mint_computer_mcp.native.x11.backend.X11Capture", fail_capture)
+    with pytest.raises(RuntimeError, match="capture setup failed"):
+        _ = X11Backend.connect(":unit-test")
+    assert keyboard.closed
+    assert client.closed
+
+
+def test_xkb_setup_failure_closes_client_before_creating_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, capture = Client(), Capture()
+    patch_connect(monkeypatch, client=client, capture=capture)
+
+    def fail_keyboard(_client: X11Client) -> XkbKeyboard:
+        msg = "XKB setup failed"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(XkbKeyboard, "connect", staticmethod(fail_keyboard))
+    with pytest.raises(RuntimeError, match="XKB setup failed"):
+        _ = X11Backend.connect(":unit-test")
+    assert client.closed
+    assert "capture" not in client.connect_calls

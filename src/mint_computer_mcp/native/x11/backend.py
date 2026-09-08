@@ -38,6 +38,7 @@ from mint_computer_mcp.domain.x11 import ProtocolVersion, RandrOutput
 from mint_computer_mcp.native.x11.capture import X11Capture
 from mint_computer_mcp.native.x11.client import X11Client
 from mint_computer_mcp.native.x11.input import X11Input
+from mint_computer_mcp.native.x11.xkb import XkbKeyboard
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,10 +125,10 @@ class X11Backend:
                 )
                 raise CapabilityUnavailableError(msg)
 
+            keyboard = stack.enter_context(XkbKeyboard.connect(client))
             capture = stack.enter_context(X11Capture(display=display))
             root = client.root_window()
-            input_ = X11Input(client=client, root=root)
-            _ = stack.callback(input_.close)
+            input_ = X11Input(client=client, root=root, keyboard=keyboard)
 
             backend = cls(
                 display=display,
