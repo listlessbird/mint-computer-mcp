@@ -306,6 +306,7 @@ name = "mint-computer-mcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "cffi" },
     { name = "mss" },
     { name = "pillow" },
     { name = "pydantic" },
@@ -325,6 +326,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cffi", specifier = ">=1.17,<3" },
     { name = "mss", specifier = ">=10.2,<11" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pydantic", specifier = ">=2,<3" },

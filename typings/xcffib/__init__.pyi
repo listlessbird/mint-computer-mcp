@@ -2,6 +2,8 @@
 
 from collections.abc import Iterator
 
+from cffi import CData
+
 from . import xproto
 
 CurrentTime: int
@@ -23,6 +25,7 @@ class List[T]:
     def buf(self) -> bytes: ...
 
 class Connection:
+    _conn: CData | None
     pref_screen: int
     core: xproto.xprotoExtension
     def __init__(
