@@ -43,6 +43,10 @@ class UnsupportedTextInputError(BackendError):
     """Raised when literal text cannot be produced safely with the current keyboard map."""
 
 
+class KeyboardStateConflictError(BackendError):
+    """Raised when existing keyboard state makes literal text unsafe."""
+
+
 class InputStateUncertainError(BackendError):
     """Raised after synthetic input cleanup could not be guaranteed."""
 

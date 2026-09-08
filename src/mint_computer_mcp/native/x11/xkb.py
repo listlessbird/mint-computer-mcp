@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, Self, cast, final
+from itertools import combinations
+from typing import TYPE_CHECKING, Never, Protocol, Self, cast, final
+from unicodedata import category
 
 from cffi import FFI
 from xcffib.ffi import ffi as xcffib_ffi
 
-from mint_computer_mcp.backend import UnsupportedKeyError, UnsupportedTextInputError
+from mint_computer_mcp.backend import (
+    KeyboardStateConflictError,
+    UnsupportedKeyError,
+    UnsupportedTextInputError,
+)
 from mint_computer_mcp.domain.identifiers import X11Keycode
 from mint_computer_mcp.domain.x11 import ProtocolVersion
 from mint_computer_mcp.native.x11.client import X11Client, X11Error
@@ -22,6 +28,9 @@ if TYPE_CHECKING:
 
     from mint_computer_mcp.domain.input import KeyName
 
+
+_RETURN = 0xFF0D
+_TAB = 0xFF09
 _XKB_CONTEXT_NO_FLAGS = 0
 _XKB_X11_SETUP_NO_FLAGS = 0
 _XKB_MIN_VERSION = (1, 0)
@@ -39,6 +48,14 @@ ffi.cdef(
     struct xkb_context;
     struct xkb_keymap;
     struct xkb_state;
+    struct xkb_state * xkb_state_new(struct xkb_keymap *keymap);
+    uint32_t xkb_state_serialize_mods(struct xkb_state *state, int components);
+    uint32_t xkb_state_serialize_layout(struct xkb_state *state, int components);
+    int xkb_state_update_mask(struct xkb_state *state, uint32_t depressed, uint32_t latched, uint32_t locked, uint32_t depressed_layout, uint32_t latched_layout, uint32_t locked_layout);
+    int xkb_state_update_key(struct xkb_state *state, uint32_t key, int direction);
+    uint32_t xkb_state_key_get_one_sym(struct xkb_state *state, uint32_t key);
+    int xkb_state_key_get_utf8(struct xkb_state *state, uint32_t key, char *buffer, size_t size);
+    uint32_t xkb_state_key_get_consumed_mods2(struct xkb_state *state, uint32_t key, int mode);
     void xkb_keymap_unref(struct xkb_keymap *keymap);
     void xkb_state_unref(struct xkb_state *state);
     uint32_t xkb_keysym_from_name(const char *name, int flags);
@@ -90,6 +107,31 @@ class XkbClosedError(XkbError):
 
 
 class _XkbCommonLib(Protocol):
+    def xkb_state_new(self, keymap: CData) -> CData: ...
+
+    def xkb_state_serialize_mods(self, state: CData, components: int) -> int: ...
+
+    def xkb_state_serialize_layout(self, state: CData, components: int) -> int: ...
+
+    def xkb_state_update_mask(  # noqa: PLR0913, PLR0917
+        self,
+        state: CData,
+        depressed: int,
+        latched: int,
+        locked: int,
+        depressed_layout: int,
+        latched_layout: int,
+        locked_layout: int,
+    ) -> int: ...
+
+    def xkb_state_update_key(self, state: CData, key: int, direction: int) -> int: ...
+
+    def xkb_state_key_get_one_sym(self, state: CData, key: int) -> int: ...
+
+    def xkb_state_key_get_utf8(self, state: CData, key: int, buffer: CData, size: int) -> int: ...
+
+    def xkb_state_key_get_consumed_mods2(self, state: CData, key: int, mode: int) -> int: ...
+
     def xkb_keymap_unref(self, keymap: CData) -> None: ...
 
     def xkb_state_unref(self, state: CData) -> None: ...
@@ -351,11 +393,153 @@ class XkbKeyboard:
         )
 
     def plan_text(self, text: str) -> tuple[KeyStroke, ...]:
-        """Plan literal text before injection; implemented in the text planning slice."""
-        self._ensure_open()
-        _ = text
-        msg = "literal XKB text planning is not available yet"
+        """Plan the entire string from a fresh map; never emit input while planning."""
+        with self._snapshot() as (keymap, state):
+            baseline = self._state_components(state)
+            if baseline[1] or baseline[4]:
+                msg = "literal text is unsafe while an XKB modifier or group latch is active"
+                raise KeyboardStateConflictError(msg)
+            plans, conflicts = self._text_candidates(keymap, state, baseline)
+            result: list[KeyStroke] = []
+            for index, character in enumerate(text):
+                if category(character) in {"Cc", "Cs"} and character not in {"\n", "\t"}:
+                    self._unsupported(character, index)
+                plan = plans.get(character)
+                if plan is None:
+                    if character in conflicts or baseline[0]:
+                        msg = f"unconsumed keyboard modifiers at character index {index}"
+                        raise KeyboardStateConflictError(msg)
+                    self._unsupported(character, index)
+                result.append(plan)
+            return tuple(result)
+
+    @staticmethod
+    def _unsupported(character: str, index: int) -> Never:
+        msg = f"unsupported codepoint U+{ord(character):04X} at character index {index}"
         raise UnsupportedTextInputError(msg)
+
+    def _state_components(self, state: CData) -> tuple[int, int, int, int, int, int]:
+        return (
+            self._common.xkb_state_serialize_mods(state, 1),
+            self._common.xkb_state_serialize_mods(state, 2),
+            self._common.xkb_state_serialize_mods(state, 4),
+            self._common.xkb_state_serialize_layout(state, 16),
+            self._common.xkb_state_serialize_layout(state, 32),
+            self._common.xkb_state_serialize_layout(state, 64),
+        )
+
+    @contextmanager
+    def _candidate_state(
+        self, keymap: CData, baseline: tuple[int, int, int, int, int, int]
+    ) -> Generator[CData]:
+        state = self._common.xkb_state_new(keymap)
+        if state == ffi.NULL:
+            msg = "could not create candidate XKB state"
+            raise XkbError(msg)
+        try:
+            _ = self._common.xkb_state_update_mask(state, *baseline)
+            yield state
+        finally:
+            self._common.xkb_state_unref(state)
+
+    def _text_modifiers(self, keymap: CData, state: CData) -> tuple[X11Keycode, ...]:
+        # Only keys whose current symbol is a text selector may be synthesized.
+        groups = (
+            ("Shift_L", "Shift_R"),
+            ("ISO_Level3_Shift", "Mode_switch"),
+            ("ISO_Level5_Shift",),
+        )
+        result: list[X11Keycode] = []
+        for names in groups:
+            symbols = {self._common.xkb_keysym_from_name(name.encode(), 0) for name in names}
+            codes = [
+                X11Keycode(key)
+                for key in self._keycodes(keymap)
+                if self._common.xkb_state_key_get_one_sym(state, key) in symbols
+            ]
+            # Different physical selectors can carry different actions in custom maps.
+            result.extend(codes)
+        return tuple(sorted(set(result)))
+
+    def _literal(self, state: CData, key: int) -> str:
+        symbol = self._common.xkb_state_key_get_one_sym(state, key)
+        if symbol == _RETURN:
+            return "\n"
+        if symbol == _TAB:
+            return "\t"
+        size = self._common.xkb_state_key_get_utf8(state, key, ffi.NULL, 0)
+        if size <= 0:
+            return ""
+        buffer = ffi.new(f"char[{size + 1}]")
+        _ = self._common.xkb_state_key_get_utf8(state, key, buffer, size + 1)
+        return ffi.string(buffer).decode("utf-8")
+
+    def _text_candidates(
+        self, keymap: CData, state: CData, baseline: tuple[int, int, int, int, int, int]
+    ) -> tuple[dict[str, KeyStroke], set[str]]:
+        plans: dict[str, KeyStroke] = {}
+        conflicts: set[str] = set()
+        modifiers = self._text_modifiers(keymap, state)
+        # At most one selector per Shift/Level3/Level5 is useful. Bound custom maps too.
+        for count in range(min(3, len(modifiers)) + 1):
+            for chord in combinations(modifiers, count):
+                with self._candidate_state(keymap, baseline) as candidate:
+                    redundant = False
+                    for modifier in chord:
+                        before = self._state_components(candidate)
+                        _ = self._common.xkb_state_update_key(candidate, modifier, 1)
+                        if self._state_components(candidate) == before:
+                            redundant = True
+                    if redundant:
+                        continue
+                    components = self._state_components(candidate)
+                    # Synthetic selectors must not latch, lock, or change groups.
+                    if components[1:] != baseline[1:]:
+                        continue
+                    for modifier in reversed(chord):
+                        _ = self._common.xkb_state_update_key(candidate, modifier, 0)
+                    if self._state_components(candidate) != baseline:
+                        continue
+                    for modifier in chord:
+                        _ = self._common.xkb_state_update_key(candidate, modifier, 1)
+                    self._collect_candidates(keymap, candidate, chord, plans, conflicts)
+        return plans, conflicts
+
+    def _collect_candidates(
+        self,
+        keymap: CData,
+        state: CData,
+        modifiers: tuple[X11Keycode, ...],
+        plans: dict[str, KeyStroke],
+        conflicts: set[str],
+    ) -> None:
+        depressed = self._common.xkb_state_serialize_mods(state, 1)
+        for key in self._keycodes(keymap):
+            if key in modifiers:
+                continue
+            literal = self._literal(state, key)
+            if len(literal) != 1:
+                continue
+            consumed = self._common.xkb_state_key_get_consumed_mods2(state, key, 0)
+            # XKB consumed masks contain real modifiers; virtual aliases are not extra keys.
+            if depressed & 0xFF & ~consumed:
+                conflicts.add(literal)
+                continue
+            before = self._state_components(state)
+            _ = self._common.xkb_state_update_key(state, key, 1)
+            during = self._state_components(state)
+            _ = self._common.xkb_state_update_key(state, key, 0)
+            if during != before or self._state_components(state) != before:
+                _ = self._common.xkb_state_update_mask(state, *before)
+                continue
+            plan = KeyStroke(modifiers=modifiers, key=X11Keycode(key))
+            previous = plans.get(literal)
+            if previous is None or (len(modifiers), key, modifiers) < (
+                len(previous.modifiers),
+                previous.key,
+                previous.modifiers,
+            ):
+                plans[literal] = plan
 
     def close(self) -> None:
         """Release the owned xkbcommon context without closing XCB."""
