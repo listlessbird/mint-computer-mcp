@@ -21,6 +21,9 @@ _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "benchmarks" / "x11-
             "--display or MINT_COMPUTER_INPUT_DISPLAY is required",
         ),
         (None, ("--display", ":explicit-cli", "--warmup", "-1"), "--warmup must be nonnegative"),
+        (":explicit-env", ("--timeout", "0"), "--timeout must be finite and positive"),
+        (":explicit-env", ("--timeout", "nan"), "--timeout must be finite and positive"),
+        (":explicit-env", ("--timeout", "inf"), "--timeout must be finite and positive"),
     ],
 )
 def test_target_validation_precedes_connections(
