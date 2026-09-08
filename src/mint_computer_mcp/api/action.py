@@ -54,7 +54,9 @@ class KeyPressAction(ApiModel):
     kind: Literal["key_press"]
     keys: Annotated[
         tuple[NonEmptyKeyName, ...],
-        Field(min_length=1),
+        # JSON arrays need to be accepted at the MCP boundary and normalized
+        # to the immutable tuple used by the internal domain model.
+        Field(min_length=1, strict=False),
     ]
 
 
