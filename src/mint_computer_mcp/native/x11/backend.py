@@ -1,5 +1,6 @@
 """X11 implementation of the desktop backend contract."""
 
+import logging
 from contextlib import ExitStack
 from dataclasses import dataclass
 from types import TracebackType
@@ -39,6 +40,7 @@ from mint_computer_mcp.native.x11.capture import X11Capture
 from mint_computer_mcp.native.x11.client import X11Client
 from mint_computer_mcp.native.x11.input import X11Input
 from mint_computer_mcp.native.x11.xkb import XkbKeyboard
+from mint_computer_mcp.observability import log_event
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +331,17 @@ class X11Backend:
         self._display_generation += 1
 
         previous_capture.close()
+
+        log_event(
+            logging.INFO,
+            "x11 display layout changed",
+            display=self._display,
+            display_generation=self._display_generation,
+            root_width=root.width,
+            root_height=root.height,
+            output_count=len(outputs),
+            outputs=tuple(output.name for output in outputs),
+        )
 
     def _desktop_rect(self) -> RootRect:
         """Return the visible X11 desktop bounding rectangle."""

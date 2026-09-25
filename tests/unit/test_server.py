@@ -1,4 +1,5 @@
 import base64
+import json
 from collections.abc import AsyncIterator
 from typing import cast
 
@@ -247,3 +248,98 @@ async def test_invalid_desktop_act_does_not_reach_runtime() -> None:
     assert result.is_error
     assert backend.moves == []
     assert backend.clicks == []
+
+
+@pytest.mark.anyio
+async def test_desktop_observe_logs_structured_success(
+    log_events: list[dict[str, object]],
+) -> None:
+    backend = FakeBackend()
+
+    with DesktopRuntime[FakeSnapshotState](backend) as runtime:
+        server = create_server(runtime)
+
+        async with Client(
+            server,
+            raise_exceptions=True,
+        ) as client:
+            _ = await client.call_tool("desktop_observe", {})
+
+    events = [event for event in log_events if event["event"] == "desktop tool call"]
+
+    assert len(events) == 1
+    assert events[0]["tool"] == "desktop_observe"
+    assert events[0]["outcome"] == "ok"
+    assert events[0]["target_kind"] == "desktop"
+    assert str(events[0]["snapshot_id"]).startswith("snap_")
+
+
+@pytest.mark.anyio
+async def test_desktop_act_failure_logs_error_type_and_reason(
+    log_events: list[dict[str, object]],
+) -> None:
+    backend = FakeBackend()
+
+    with DesktopRuntime[FakeSnapshotState](backend) as runtime:
+        server = create_server(runtime)
+
+        async with Client(
+            server,
+            raise_exceptions=True,
+        ) as client:
+            observation = await client.call_tool("desktop_observe", {})
+
+            snapshot_id = _structured_content(observation)["snapshot_id"]
+            assert isinstance(snapshot_id, str)
+
+            backend.generation += 1
+
+            result = await client.call_tool(
+                "desktop_act",
+                {
+                    "action": {
+                        "kind": "move",
+                        "snapshot_id": snapshot_id,
+                        "x": 0,
+                        "y": 0,
+                    }
+                },
+            )
+
+    assert result.is_error
+
+    failures = [event for event in log_events if event["outcome"] == "error"]
+
+    assert len(failures) == 1
+    failure = failures[0]
+    assert failure["tool"] == "desktop_act"
+    assert failure["action_kind"] == "move"
+    assert failure["snapshot_id"] == snapshot_id
+    assert failure["error_type"] == "StaleSnapshotError"
+    assert "old display layout" in str(failure["error"])
+
+
+@pytest.mark.anyio
+async def test_type_text_event_never_logs_the_payload(
+    log_events: list[dict[str, object]],
+) -> None:
+    backend = FakeBackend()
+
+    with DesktopRuntime[FakeSnapshotState](backend) as runtime:
+        server = create_server(runtime)
+
+        async with Client(
+            server,
+            raise_exceptions=True,
+        ) as client:
+            _ = await client.call_tool(
+                "desktop_act",
+                {"action": {"kind": "type_text", "text": "hunter2-secret"}},
+            )
+
+    events = log_events
+
+    assert len(events) == 1
+    assert events[0]["action_kind"] == "type_text"
+    assert "text" not in events[0]
+    assert "hunter2-secret" not in json.dumps(events)

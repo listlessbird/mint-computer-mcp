@@ -319,6 +319,7 @@ def test_output_and_clipped_window_resolve_from_the_captured_origin() -> None:
 def test_layout_change_invalidates_without_another_observation(
     monkeypatch: pytest.MonkeyPatch,
     change: str,
+    log_events: list[dict[str, object]],
 ) -> None:
     client, capture, replacement = Client(), Capture(), Capture()
 
@@ -338,6 +339,17 @@ def test_layout_change_invalidates_without_another_observation(
         assert capture.closed
         current = runtime.observe(DesktopTarget())
         assert current.snapshot.display_generation == observation.snapshot.display_generation + 1
+
+    layout_events = [
+        event for event in log_events if event["event"] == "x11 display layout changed"
+    ]
+
+    assert len(layout_events) == 1
+    layout_event = layout_events[0]
+    assert layout_event["display"] == ":unit-test"
+    assert layout_event["display_generation"] == 1
+    assert layout_event["output_count"] == len(client.outputs)
+
     assert replacement.closed
 
 
